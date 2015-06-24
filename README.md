@@ -17,3 +17,7 @@ Usage
 -----
 Logged 404s are visible under the 'reports' section in the CMS as 'External broken links report'. You can either contact the referrer to get the link updated, or redirect the link at your end using the [redirectedurls module](https://github.com/silverstripe-labs/silverstripe-redirectedurls)
 
+To also log site searches, add $logSearchAction to you Page_results.ss;
+```
+$logSearchAction <%-- for 404/searchquery report --%>
+```

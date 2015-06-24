@@ -35,4 +35,17 @@ class FourOhFourLogger extends Extension {
 		FourOhFourLog::logHit($link, $ref);
 		
 	}
+	
+	/**
+	 * @throws SS_HTTPResponse_Exception
+	 */
+	public function logSearchAction() {
+
+		$getVars = $this->owner->request->getVars();
+		$query = $getVars['Search'];
+		
+		// log or count 404
+		SearchLog::logHit($query);
+		
+	}
 }

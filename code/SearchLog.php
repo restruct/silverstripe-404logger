@@ -2,42 +2,37 @@
 /**
  * Logs one 404 request
  */
-class FourOhFourLog extends DataObject {
+class SearchLog extends DataObject {
 
-	private static $singular_name = '404 Log';
+	private static $singular_name = 'Search Log';
 
 	private static $db = array(
-		'Referrer' => 'Varchar(2048)',
-		'Link' => 'Varchar(2048)',
+		'Query' => 'Varchar(255)',
 		'Count' => 'Int',
 	);
 
 	private static $summary_fields = array(
-		'Referrer' => 'Referrer',
-		'Link' => 'Incoming link',
+		'Query' => 'Search query',
 		'Count' => 'Hits',
 	);
 
 	private static $searchable_fields = array(
-		'Referrer',
-		'Link',
+		'Query',
 	);
 
-	public static function logHit($link,$ref) {
+	public static function logHit($query) {
 		
 		// create or update log
-		$existing = FourOhFourLog::get()->filter(
+		$existing = SearchLog::get()->filter(
 				array(
-					'Referrer' => $ref,
-					'Link' => $link
+					'Query' => $query
 					))->first();
 		if($existing){ 
 			$existing->Count = $existing->Count+1;
 			$existing->write();
 		} else {
-			$log = new FourOhFourLog();
-			$log->Referrer = $ref;
-			$log->Link = $link;
+			$log = new SearchLog();
+			$log->Query = $query;
 			$log->Count = 1;
 			$log->write();
 		}
