@@ -22,7 +22,7 @@ class FourOhFourLogger extends Extension {
             $ref = $_SERVER['HTTP_REFERER'];
 			$ref = htmlentities(trim($ref), ENT_QUOTES, 'UTF-8');
 			// only log external referrers, internal links will be reported in another report
-			$parts = parse_url($lastReferer);
+			$parts = parse_url($ref);
 			if ( isset($parts['host']) 
 					&& mb_strpos($parts['host'], $_SERVER['HTTP_HOST']) !== false ){
 				return;
