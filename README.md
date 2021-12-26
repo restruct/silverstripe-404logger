@@ -9,7 +9,7 @@ Either:
 1. Download or git clone the '404logger' directory to your webroot, or;
 2. Using composer run the following in the command line:
 
-  composer require micschk/silverstripe-404logger dev-master
+  composer require restruct/silverstripe-404logger dev-master
 
 3. Run dev/build (http://www.mysite.com/dev/build?flush=all)
 

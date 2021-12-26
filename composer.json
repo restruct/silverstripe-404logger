@@ -1,15 +1,15 @@
 {
-	"name": "micschk/silverstripe-404logger",
+	"name": "restruct/silverstripe-404logger",
 	"description": "Logs 404 errors to the database (link & referrer + count), including report for CMS",
 	"license": "MIT",
-	"type": "silverstripe-module",
+    "type": "silverstripe-vendormodule",
 	"keywords": ["silverstripe", "urls", "log", "404"],
 	"authors": [{
-		"name": "Michael van Schaik",
-		"email": "mic@restruct.nl"
+		"name": "Restruct",
+		"email": "dev@restruct.nl"
 	}],
 	"require": {
-		"silverstripe/framework": ">=3.0.0"
+		"silverstripe/framework": "^4.0"
 	},
 	"extra": {
 		"installer-name": "404logger"

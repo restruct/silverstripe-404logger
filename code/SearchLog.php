@@ -1,10 +1,13 @@
 <?php
+
+use SilverStripe\ORM\DataObject;
+
 /**
  * Logs one 404 request
  */
-class SearchLog extends DataObject
+class SearchLog
+    extends DataObject
 {
-
     private static $singular_name = 'Search Log';
 
     private static $db = array(
@@ -23,7 +26,6 @@ class SearchLog extends DataObject
 
     public static function logHit($query)
     {
-        
         // create or update log
         $existing = SearchLog::get()->filter(
                 array(
@@ -33,19 +35,19 @@ class SearchLog extends DataObject
             $existing->Count = $existing->Count+1;
             $existing->write();
         } else {
-            $log = new SearchLog();
-            $log->Query = $query;
+            $log = SearchLog::create();
+            $log->Query = strtolower($query);
             $log->Count = 1;
             $log->write();
         }
     }
-    
+
     public function canView($member = null)
     {
         return true;
     }
 
-    public function canCreate($member = null)
+    public function canCreate($member = null, $context = [])
     {
         return true;
     }

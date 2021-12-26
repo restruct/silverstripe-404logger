@@ -1,10 +1,13 @@
 <?php
+
+use SilverStripe\ORM\DataObject;
+
 /**
  * Logs one 404 request
  */
-class FourOhFourLog extends DataObject
+class FourOhFourLog
+    extends DataObject
 {
-
     private static $singular_name = '404 Log';
 
     private static $db = array(
@@ -26,7 +29,6 @@ class FourOhFourLog extends DataObject
 
     public static function logHit($link, $ref)
     {
-        
         // create or update log
         $existing = FourOhFourLog::get()->filter(
                 array(
@@ -37,20 +39,20 @@ class FourOhFourLog extends DataObject
             $existing->Count = $existing->Count+1;
             $existing->write();
         } else {
-            $log = new FourOhFourLog();
+            $log = FourOhFourLog::create();
             $log->Referrer = $ref;
             $log->Link = $link;
             $log->Count = 1;
             $log->write();
         }
     }
-    
+
     public function canView($member = null)
     {
         return true;
     }
 
-    public function canCreate($member = null)
+    public function canCreate($member = null, $context = [])
     {
         return true;
     }

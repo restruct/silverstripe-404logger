@@ -1,27 +1,29 @@
 <?php
 
+use SilverStripe\Reports\Report;
+
 /**
  * Report incoming broken links
  */
 
-class FourOhFourReport extends SS_Report
+class FourOhFourReport
+    extends Report
 {
-
     public function title()
     {
-        return _t('FourOhFourLogger.FOUROHFOURREPORT', "External broken links report");
+        return _t('FourOhFourLogger.FOUROHFOURREPORT', "(External) broken links report");
     }
-    
+
     public function parameterFields()
     {
         return false;
     }
-    
+
     public function sourceRecords($params, $sort, $limit)
     {
         return FourOhFourLog::get();
     }
-    
+
     public function columns()
     {
         $fields = array(
@@ -36,10 +38,10 @@ class FourOhFourReport extends SS_Report
             ),
             "LastEdited" => array(
                 "title" => _t('FourOhFourLogger.LastHit', 'Most recent hit'),
-                'casting' => 'SS_Datetime->Full'
+                'casting' => 'Datetime->Full'
             )
         );
-        
+
         return $fields;
     }
 }

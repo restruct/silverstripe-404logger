@@ -1,0 +1,9 @@
+---
+Name: 404logger_extensions
+---
+SilverStripe\Control\RequestHandler:
+  extensions:
+    - FourOhFourLogger
+SilverStripe\CMS\Model\SiteTree:
+  extensions:
+    - SearchQueryLogger
