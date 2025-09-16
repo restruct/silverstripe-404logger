@@ -9,7 +9,7 @@
 		"email": "dev@restruct.nl"
 	}],
 	"require": {
-		"silverstripe/framework": "^5"
+		"silverstripe/framework": "^4 || ^5"
 	},
 	"extra": {
 		"installer-name": "404logger"
