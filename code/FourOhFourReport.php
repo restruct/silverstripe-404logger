@@ -6,8 +6,7 @@ use SilverStripe\Reports\Report;
  * Report incoming broken links
  */
 
-class FourOhFourReport
-    extends Report
+class FourOhFourReport extends Report
 {
     public function title()
     {
