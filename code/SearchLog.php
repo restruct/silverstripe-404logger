@@ -9,6 +9,11 @@ class SearchLog
     extends DataObject
 {
     private static $singular_name = 'Search Log';
+    
+    private static $default_sort = 'LastEdited DESC';
+
+    /** @config string name of search query param to log (default 'Search') */
+    private static $search_query_param = 'Search';
 
     private static $db = array(
         'Query' => 'Varchar(255)',
