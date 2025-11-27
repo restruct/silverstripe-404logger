@@ -11,7 +11,8 @@ class SearchQueryLogger
 {
     public function contentcontrollerInit()
     {
-        if($searchQuery = Controller::curr()->getRequest()->getVar('Search')){
+        $searchQueryParam = Config::inst()->get(SearchLog::class, 'search_query_param');
+        if($searchQuery = Controller::curr()->getRequest()->getVar($searchQueryParam)){
             SearchLog::logHit($searchQuery);
         }
     }
