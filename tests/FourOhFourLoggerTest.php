@@ -4,6 +4,7 @@ namespace Restruct\FourOhFourLogger\Tests;
 
 use FourOhFourLog;
 use FourOhFourLogger;
+use SilverStripe\Control\Director;
 use SilverStripe\Control\HTTPRequest;
 use SilverStripe\Control\RequestHandler;
 use SilverStripe\Core\Injector\Injector;
@@ -91,6 +92,29 @@ class FourOhFourLoggerTest extends FunctionalTest
         ]);
 
         $this->assertCount(0, FourOhFourLog::get());
+    }
+
+    /**
+     * Regression: "internal" means the host the request was made on, as in 2.x. Director::host()
+     * returns Director.alternate_base_url's host first, so with it set, a site reached on another
+     * hostname logged its own links as external and the canonical host's links as internal.
+     */
+    public function testInternalMeansTheRequestHostEvenWithAlternateBaseUrl()
+    {
+        Director::config()->set('alternate_base_url', 'https://canonical.example/');
+
+        $this->get('no-such-page-404logger', null, [
+            'Host' => 'mysite.example',
+            'Referer' => 'https://mysite.example/some/page',
+        ]);
+        $this->assertCount(0, FourOhFourLog::get(), 'a referrer on the request host is internal');
+
+        $this->get('no-such-page-404logger', null, [
+            'Host' => 'mysite.example',
+            'Referer' => 'https://canonical.example/some/page',
+        ]);
+        $this->assertCount(1, FourOhFourLog::get(), 'a referrer on another host is external');
+        $this->assertSame('https://canonical.example/some/page', FourOhFourLog::get()->first()->Referrer);
     }
 
     public function testOtherErrorCodesAreNotLogged()

@@ -1,6 +1,5 @@
 <?php
 
-use SilverStripe\Control\Director;
 use SilverStripe\Control\HTTPRequest;
 use SilverStripe\Control\RequestHandler;
 use SilverStripe\Core\Extension;
@@ -32,7 +31,11 @@ class FourOhFourLogger
             # referrer's port-less host, so internal referrers were logged as external. An empty
             # own host is skipped explicitly, because mb_strpos() with an empty needle returns 0
             # and would classify every referrer as internal.
-            $ownHost = parse_url('//' . (string) Director::host($request), PHP_URL_HOST);
+            # The request's OWN Host header, deliberately not Director::host(): that returns
+            # Director.alternate_base_url's host first when it is set, so a site reached on another
+            # hostname (a staging or secondary domain) would log its own internal links as
+            # external. 2.x compared against $_SERVER['HTTP_HOST'], which is this same value.
+            $ownHost = parse_url('//' . (string) $request->getHost(), PHP_URL_HOST);
             if (isset($parts['host']) && $ownHost
                     && mb_strpos($parts['host'], $ownHost) !== false) {
                 return;
