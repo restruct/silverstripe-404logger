@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.0.1 (2026-09-25)
+
+### Fixed
+
+- **A long URL in the (External) broken links report pushed the other columns off-screen.** The
+  `Link` column (a `Varchar(2048)`) was shown in full and unwrapped. The grid now shows at most 120
+  characters, with an ellipsis when shortened; the full URL is in the cell's `title` attribute (shown
+  on hover) and on the record itself. The limit is configurable as
+  `FourOhFourReport.link_display_length`.
+- **A long Referrer did the same.** It is shortened the same way, with the same limit.
+- `phpunit.xml.dist` (the host-project template) now fails on an empty test suite, and its note on
+  flushing under PHPUnit 11 is corrected.
+
 ## 3.0.0
 
 Silverstripe 5 and 6 from one line, with a test suite and CI. Silverstripe 4 is no longer
