@@ -45,6 +45,24 @@ class FourOhFourLoggerTest extends FunctionalTest
         $this->assertSame(1, (int) $log->Count);
     }
 
+    /**
+     * Pins the CURRENT stored form: the referrer is trimmed and stored HTML-entity encoded
+     * (htmlentities, ENT_QUOTES, UTF-8), so existing rows and anything reading them stay
+     * consistent. Changing that is a deliberate decision, not a side effect of a refactor.
+     */
+    public function testReferrerIsStoredHtmlEntityEncoded()
+    {
+        $this->get('no-such-page-404logger', null, [
+            'Referer' => " https://elsewhere.example/café?a=1&b=<x>&c='q'\"r\" ",
+        ]);
+
+        $this->assertCount(1, FourOhFourLog::get());
+        $this->assertSame(
+            'https://elsewhere.example/caf&eacute;?a=1&amp;b=&lt;x&gt;&amp;c=&#039;q&#039;&quot;r&quot;',
+            FourOhFourLog::get()->first()->Referrer
+        );
+    }
+
     public function testQueryStringIsPartOfTheLoggedLink()
     {
         $this->get('no-such-page-404logger?utm_source=x', null, ['Referer' => 'https://elsewhere.example/']);
