@@ -31,7 +31,8 @@ supported; projects on it keep resolving the `2.x` tags (a `^2.0` constraint nev
 - **Installs without silverstripe/reports** fatalled on flush (deploy, `dev/build`, `?flush=1`),
   because both report classes extend a class from a package that was neither required nor
   suggested. They are guarded now, and silverstripe/reports and silverstripe/cms are listed under
-  `suggest`. The search logger is applied only when `SiteTree` exists.
+  `suggest`. The search logger is applied only when `SiteTree` exists. Resolves #4 (by guarding
+  rather than requiring silverstripe/reports, so a framework-only install still logs 404s).
 
 ### Changed
 
