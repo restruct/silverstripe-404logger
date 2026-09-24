@@ -54,7 +54,11 @@ class FourOhFourReport extends Report
                 },
             ),
             "Referrer" => array(
-                "title" => _t('FourOhFourLogger.Referrer', "Referrer")
+                "title" => _t('FourOhFourLogger.Referrer', "Referrer"),
+                # Referrer is a Varchar(2048) too, so it is shortened the same way as Link
+                'formatting' => function ($value, $item) {
+                    return static::shortenedField($item, 'Referrer');
+                },
             ),
             "LastEdited" => array(
                 "title" => _t('FourOhFourLogger.LastHit', 'Most recent hit'),
@@ -75,9 +79,22 @@ class FourOhFourReport extends Report
      */
     public static function shortenedLink($item)
     {
-        $full = (string) $item->Link;
+        return static::shortenedField($item, 'Link');
+    }
+
+    /**
+     * Any of the record's long text fields, limited to link_display_length characters for display in
+     * the grid, wrapped in a span whose title attribute carries the full value. Both parts are escaped.
+     *
+     * @param FourOhFourLog $item
+     * @param string $field
+     * @return string
+     */
+    public static function shortenedField($item, $field)
+    {
+        $full = (string) $item->$field;
         # LimitCharacters() works on the plain value and appends an ellipsis only when it truncates.
-        $short = $item->dbObject('Link')->LimitCharacters((int) static::config()->get('link_display_length'));
+        $short = $item->dbObject($field)->LimitCharacters((int) static::config()->get('link_display_length'));
 
         return sprintf('<span title="%s">%s</span>', Convert::raw2att($full), Convert::raw2xml($short));
     }

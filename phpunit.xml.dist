@@ -9,10 +9,10 @@
     SS5: vendor/bin/phpunit -c phpunit.xml.dist vendor/restruct/silverstripe-404logger/tests flush=1
     SS6: SS_PHPUNIT_FLUSH=1 vendor/bin/phpunit -c phpunit.xml.dist
   (SS5 needs an explicit path before flush=1: PHPUnit 9 reads a bare trailing argument as a file
-  path, so a testsuite-only run with flush=1 fails with 'Cannot open file'. SS6 ignores flush=1.)
+  path, so a testsuite-only run with flush=1 fails with 'Cannot open file'. On SS6, PHPUnit 11 treats a bare flush=1 as a test path; use SS_PHPUNIT_FLUSH=1.)
   failOnWarning is pinned because warning escalation differs between PHPUnit 9 (SS5) and 11 (SS6).
 -->
-<phpunit bootstrap="vendor/silverstripe/framework/tests/bootstrap.php" colors="true" failOnWarning="true">
+<phpunit bootstrap="vendor/silverstripe/framework/tests/bootstrap.php" colors="true" failOnWarning="true" failOnEmptyTestSuite="true">
     <testsuites>
         <testsuite name="404logger">
             <directory>vendor/restruct/silverstripe-404logger/tests</directory>

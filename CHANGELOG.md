@@ -9,6 +9,9 @@
   characters, with an ellipsis when shortened; the full URL is in the cell's `title` attribute (shown
   on hover) and on the record itself. The limit is configurable as
   `FourOhFourReport.link_display_length`.
+- **A long Referrer did the same.** It is shortened the same way, with the same limit.
+- `phpunit.xml.dist` (the host-project template) now fails on an empty test suite, and its note on
+  flushing under PHPUnit 11 is corrected.
 
 ## 3.0.0
 

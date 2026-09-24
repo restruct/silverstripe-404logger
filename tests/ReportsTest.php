@@ -98,6 +98,24 @@ class ReportsTest extends SapphireTest
     }
 
     /**
+     * A long Referrer is shortened the same way as a long Link, so it cannot push the other
+     * columns off-screen either.
+     */
+    public function testFourOhFourReportLimitsTheDisplayedReferrer()
+    {
+        # padded with 'x': linkCellText() strips any trailing non-'x' run as the ellipsis
+        $referrer = 'https://elsewhere.example/' . str_repeat('x', 300) . '-REF-SENTINEL';
+        FourOhFourLog::logHit('missing/page-with-long-referrer', $referrer);
+
+        $this->logInWithPermission('ADMIN');
+        $html = $this->render(FourOhFourReport::create()->getReportField());
+
+        # The full value appears once only: in the title attribute, not as cell text.
+        $this->assertSame(1, substr_count($html, '-REF-SENTINEL'));
+        $this->assertSame(mb_substr($referrer, 0, 120), $this->linkCellText($html, $referrer));
+    }
+
+    /**
      * The visible text of the Link cell whose title attribute holds $fullLink, decoded, with the
      * ellipsis LimitCharacters() appends (configurable, so matched as any trailing non-'x' run) removed.
      */
