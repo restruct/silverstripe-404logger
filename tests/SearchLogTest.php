@@ -74,4 +74,24 @@ class SearchLogTest extends SapphireTest
         $this->assertSame(2, (int) $log->Count);
         $this->assertSame(255, mb_strlen($log->Query));
     }
+
+    /**
+     * Truncation counts characters, not bytes. The ASCII fixture above cannot tell mb_substr()
+     * from substr(); a 255-byte cut of two-byte characters ends halfway through one, leaving
+     * invalid UTF-8 and only 127 characters.
+     */
+    public function testLongMultibyteQueryIsTruncatedByCharacter()
+    {
+        $query = str_repeat('é', 300);
+
+        SearchLog::logHit($query);
+        SearchLog::logHit($query);
+
+        $this->assertCount(1, SearchLog::get());
+        $log = SearchLog::get()->first();
+        $this->assertSame(2, (int) $log->Count);
+        $this->assertTrue(mb_check_encoding($log->Query, 'UTF-8'), 'Query is valid UTF-8');
+        $this->assertSame(255, mb_strlen($log->Query));
+        $this->assertSame(str_repeat('é', 255), $log->Query);
+    }
 }

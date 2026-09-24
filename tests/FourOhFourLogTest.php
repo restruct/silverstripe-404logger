@@ -77,4 +77,27 @@ class FourOhFourLogTest extends SapphireTest
         $this->assertSame(2048, mb_strlen($log->Referrer));
         $this->assertSame(mb_substr($link, 0, 2048), $log->Link);
     }
+
+    /**
+     * Truncation counts characters, not bytes. The ASCII fixture above cannot tell mb_substr()
+     * from substr(); here the byte-offset cut would fall inside a two-byte character (the
+     * prefixes have an odd byte length), leaving invalid UTF-8 and fewer than 2048 characters.
+     */
+    public function testLongMultibyteValuesAreTruncatedByCharacter()
+    {
+        $link = 'missing/x' . str_repeat('é', 3000);
+        $ref = 'https://elsewhere.example/x' . str_repeat('ü', 3000);
+
+        FourOhFourLog::logHit($link, $ref);
+        FourOhFourLog::logHit($link, $ref);
+
+        $this->assertCount(1, FourOhFourLog::get());
+        $log = FourOhFourLog::get()->first();
+        $this->assertSame(2, (int) $log->Count);
+        foreach (['Link' => $link, 'Referrer' => $ref] as $field => $value) {
+            $this->assertTrue(mb_check_encoding($log->$field, 'UTF-8'), "$field is valid UTF-8");
+            $this->assertSame(2048, mb_strlen($log->$field), "$field is cut at 2048 characters");
+            $this->assertSame(mb_substr($value, 0, 2048), $log->$field);
+        }
+    }
 }
