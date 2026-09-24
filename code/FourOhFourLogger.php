@@ -1,5 +1,6 @@
 <?php
 
+use SilverStripe\Control\Director;
 use SilverStripe\Control\HTTPRequest;
 use SilverStripe\Control\RequestHandler;
 use SilverStripe\Core\Extension;
@@ -20,13 +21,20 @@ class FourOhFourLogger
         }
 
 		// get referrer
-		if (isset($_SERVER['HTTP_REFERER']) && !empty($_SERVER['HTTP_REFERER'])) {
-            $ref = $_SERVER['HTTP_REFERER'];
+        # Read from the request rather than $_SERVER: identical for a real request (the request is
+        # built from $_SERVER), and correct for a request constructed in code or by Director::test().
+        $ref = $request->getHeader('Referer');
+		if (is_string($ref) && trim($ref) !== '') {
             $ref = htmlentities(trim($ref), ENT_QUOTES, 'UTF-8');
             // only log EXTERNAL referrers, internal links will be reported in another report
             $parts = parse_url($ref);
-            if (isset($parts['host'])
-                    && mb_strpos($parts['host'], $_SERVER['HTTP_HOST']) !== false) {
+            # Own host without any port: a Host header of 'example.com:8080' never matched the
+            # referrer's port-less host, so internal referrers were logged as external. An empty
+            # own host is skipped explicitly, because mb_strpos() with an empty needle returns 0
+            # and would classify every referrer as internal.
+            $ownHost = parse_url('//' . (string) Director::host($request), PHP_URL_HOST);
+            if (isset($parts['host']) && $ownHost
+                    && mb_strpos($parts['host'], $ownHost) !== false) {
                 return;
             }
         } else {
