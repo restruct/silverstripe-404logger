@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Run the suite from a HOST project that requires this module (path repository, symlink: true):
+    SS5: vendor/bin/phpunit vendor/restruct/silverstripe-404logger/tests flush=1
+    SS6: SS_PHPUNIT_FLUSH=1 vendor/bin/phpunit vendor/restruct/silverstripe-404logger/tests
+  failOnWarning is pinned because warning escalation differs between PHPUnit 9 (SS5) and 11 (SS6).
+-->
+<phpunit bootstrap="vendor/silverstripe/framework/tests/bootstrap.php" colors="true" failOnWarning="true">
+    <testsuites>
+        <testsuite name="404logger">
+            <directory>tests</directory>
+        </testsuite>
+    </testsuites>
+</phpunit>
