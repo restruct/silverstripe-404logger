@@ -9,9 +9,23 @@
 		"email": "dev@restruct.nl"
 	}],
 	"require": {
-		"silverstripe/framework": "^4 || ^5 || ^6"
+		"php": "^8.1",
+		"silverstripe/framework": "^5 || ^6"
+	},
+	"require-dev": {
+		"silverstripe/recipe-testing": "^3 || ^4"
+	},
+	"suggest": {
+		"silverstripe/reports": "Shows the logged 404s and search queries as CMS reports",
+		"silverstripe/cms": "Enables logging of front-end search queries (SearchQueryLogger)"
 	},
 	"extra": {
 		"installer-name": "404logger"
-	}
+	},
+	"funding": [
+		{
+			"type": "github",
+			"url": "https://github.com/sponsors/restruct"
+		}
+	]
 }

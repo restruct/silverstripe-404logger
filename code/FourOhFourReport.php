@@ -2,6 +2,13 @@
 
 use SilverStripe\Reports\Report;
 
+# silverstripe/reports is suggested, not required. Without this guard, a flush builds the config
+# manifest, which calls class_exists() on every class (PrivateStaticTransformer) and so autoloads
+# this file - and extending a missing parent fatals the whole application at that point.
+if (!class_exists(Report::class)) {
+    return;
+}
+
 /**
  * Report incoming broken links
  */

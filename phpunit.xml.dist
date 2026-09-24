@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  A TEMPLATE for a host project, not a config this module runs with: PHPUnit resolves `bootstrap`
+  and `<directory>` relative to this file, and the module has no vendor/ of its own, so neither
+  `vendor/bin/phpunit` in the module root nor `-c vendor/restruct/silverstripe-404logger/phpunit.xml.dist`
+  from a host works. Nothing in this repository reads it; CI writes the equivalent into its host.
+  Use: copy it to the root of a HOST project that requires this module (path repository,
+  symlink: true - a dist install has no tests/), then from that root:
+    SS5: vendor/bin/phpunit -c phpunit.xml.dist vendor/restruct/silverstripe-404logger/tests flush=1
+    SS6: SS_PHPUNIT_FLUSH=1 vendor/bin/phpunit -c phpunit.xml.dist
+  (SS5 needs an explicit path before flush=1: PHPUnit 9 reads a bare trailing argument as a file
+  path, so a testsuite-only run with flush=1 fails with 'Cannot open file'. SS6 ignores flush=1.)
+  failOnWarning is pinned because warning escalation differs between PHPUnit 9 (SS5) and 11 (SS6).
+-->
+<phpunit bootstrap="vendor/silverstripe/framework/tests/bootstrap.php" colors="true" failOnWarning="true">
+    <testsuites>
+        <testsuite name="404logger">
+            <directory>vendor/restruct/silverstripe-404logger/tests</directory>
+        </testsuite>
+    </testsuites>
+</phpunit>
