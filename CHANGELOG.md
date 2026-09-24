@@ -9,9 +9,16 @@ supported; projects on it keep resolving the `2.x` tags (a `^2.0` constraint nev
 
 - **Requires `silverstripe/framework: ^5 || ^6` and PHP `^8.1`** (the 8.1 floor is what Silverstripe 5
   allows; Silverstripe 6 itself requires PHP 8.3). Silverstripe 4 was dropped because
-  it reached end of life in April 2025. There are no API changes: class names, table names, config
-  and the report titles are unchanged, so upgrading from 2.x on Silverstripe 5 needs no code or data
-  changes, just a database build.
+  it reached end of life in April 2025. Class names, table names, config and the report titles are
+  unchanged, so upgrading from 2.x on Silverstripe 5 needs no data changes, just a database build.
+- **Viewing, editing, deleting and creating log records now requires the `CMS_ACCESS_ReportAdmin`
+  permission** (`canView()`, `canEdit()`, `canDelete()` and `canCreate()` on `FourOhFourLog` and
+  `SearchLog`). In 2.x all four returned `true` for everyone, including anonymous visitors, so any
+  code that exposed the records (a GridField, a front-end list, an API) showed visited URLs,
+  referrers and search terms to anyone. Users with access to the Reports section keep full access.
+  Logging itself is unaffected: `logHit()` writes without a member and never checks these
+  permissions. If your own code shows the records to users without report access, grant them
+  `CMS_ACCESS_ReportAdmin`.
 
 ### Fixed
 
@@ -40,7 +47,7 @@ supported; projects on it keep resolving the `2.x` tags (a `^2.0` constraint nev
 - The referrer and host are read from the request object instead of `$_SERVER`. Same values for a
   real request; correct for requests built in code or in tests. The own host is still the request's
   `Host` header, so `Director.alternate_base_url` does not change which referrers count as internal.
-- Adds a behavioural test suite (34 tests) and CI on Silverstripe 5 (PHP 8.1, 8.3) and 6
+- Adds a behavioural test suite (39 tests) and CI on Silverstripe 5 (PHP 8.1, 8.3) and 6
   (PHP 8.3, 8.4) against MariaDB 11.4.
 - Adds `.gitattributes` so dist installs do not ship `tests/`, `.github/` or dev tooling config.
 - Adds the composer `funding` property.

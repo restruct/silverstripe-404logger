@@ -53,6 +53,9 @@ Logged 404s are visible under the 'Reports' section in the CMS as '(External) br
 
 Logged search queries are in the same section as 'Search words report'.
 
+Viewing and managing the logged records requires the `CMS_ACCESS_ReportAdmin` permission (access to
+the Reports section). Logging does not depend on it: hits are logged for every visitor.
+
 ### What gets logged
 
 **404s** (`FourOhFourLogger`, applied to every `RequestHandler`):

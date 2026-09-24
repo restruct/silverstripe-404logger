@@ -1,6 +1,7 @@
 <?php
 
 use SilverStripe\ORM\DataObject;
+use SilverStripe\Security\Permission;
 
 /**
  * Logs one 404 request
@@ -62,21 +63,37 @@ class SearchLog
 
     public function canView($member = null)
     {
-        return true;
+        # Report data (visited URLs, referrers, search terms) is for CMS users with report
+        # access only; it used to be open to everyone. logHit() writes without a member and
+        # does not go through this check (DataObject::write() does not call canCreate()).
+//        return true;
+        return Permission::check('CMS_ACCESS_ReportAdmin', 'any', $member);
     }
 
     public function canCreate($member = null, $context = [])
     {
-        return true;
+        # Report data (visited URLs, referrers, search terms) is for CMS users with report
+        # access only; it used to be open to everyone. logHit() writes without a member and
+        # does not go through this check (DataObject::write() does not call canCreate()).
+//        return true;
+        return Permission::check('CMS_ACCESS_ReportAdmin', 'any', $member);
     }
 
     public function canEdit($member = null)
     {
-        return true;
+        # Report data (visited URLs, referrers, search terms) is for CMS users with report
+        # access only; it used to be open to everyone. logHit() writes without a member and
+        # does not go through this check (DataObject::write() does not call canCreate()).
+//        return true;
+        return Permission::check('CMS_ACCESS_ReportAdmin', 'any', $member);
     }
 
     public function canDelete($member = null)
     {
-        return true;
+        # Report data (visited URLs, referrers, search terms) is for CMS users with report
+        # access only; it used to be open to everyone. logHit() writes without a member and
+        # does not go through this check (DataObject::write() does not call canCreate()).
+//        return true;
+        return Permission::check('CMS_ACCESS_ReportAdmin', 'any', $member);
     }
 }
