@@ -51,6 +51,9 @@ Usage
 
 Logged 404s are visible under the 'Reports' section in the CMS as '(External) broken links report'. You can either contact the referrer to get the link updated, or redirect the link at your end using the [redirectedurls module](https://github.com/silverstripe/silverstripe-redirectedurls)
 
+The report shows long URLs shortened to 120 characters (the full URL appears on hover); set
+`FourOhFourReport.link_display_length` in YAML config to change the limit.
+
 Logged search queries are in the same section as 'Search words report'.
 
 Viewing and managing the logged records requires the `CMS_ACCESS_ReportAdmin` permission (access to

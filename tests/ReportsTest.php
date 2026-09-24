@@ -62,6 +62,59 @@ class ReportsTest extends SapphireTest
         $this->assertStringContainsString('Amount of hits', $html);
     }
 
+    /**
+     * Link is a Varchar(2048) and used to be shown in full, pushing the other columns off-screen.
+     * The grid cell must show at most link_display_length characters, with the full URL in the
+     * title attribute, and both escaped.
+     */
+    public function testFourOhFourReportLimitsTheDisplayedLink()
+    {
+        $tail = str_repeat('x', 300) . '-TAIL-SENTINEL';
+        $long = 'missing/<long>&page/' . $tail;
+        FourOhFourLog::logHit($long, 'https://elsewhere.example/');
+        FourOhFourLog::logHit('missing/short-page', 'https://elsewhere.example/');
+
+        $this->logInWithPermission('ADMIN');
+        $html = $this->render(FourOhFourReport::create()->getReportField());
+
+        $this->assertSame(
+            mb_substr($long, 0, 120),
+            $this->linkCellText($html, $long),
+            'The long Link must be shown limited to 120 characters, the full value in the title.'
+        );
+        # The full value appears once only: in the title attribute, not as cell text.
+        $this->assertSame(1, substr_count($html, '-TAIL-SENTINEL'));
+        $this->assertStringNotContainsString('<long>', $html, 'The Link must be escaped.');
+        # A short Link is shown as it is, without an ellipsis.
+        $this->assertStringContainsString(
+            '<span title="missing/short-page">missing/short-page</span>',
+            $html
+        );
+
+        # The limit is configurable.
+        FourOhFourReport::config()->set('link_display_length', 30);
+        $html = $this->render(FourOhFourReport::create()->getReportField());
+        $this->assertSame(mb_substr($long, 0, 30), $this->linkCellText($html, $long));
+    }
+
+    /**
+     * The visible text of the Link cell whose title attribute holds $fullLink, decoded, with the
+     * ellipsis LimitCharacters() appends (configurable, so matched as any trailing non-'x' run) removed.
+     */
+    private function linkCellText(string $html, string $fullLink): string
+    {
+        $title = preg_quote(htmlspecialchars($fullLink, ENT_QUOTES), '/');
+        $this->assertSame(
+            1,
+            preg_match('/<span title="' . $title . '">([^<]*)<\/span>/', $html, $m),
+            'The Link cell must carry the full value in its title attribute.'
+        );
+        $text = html_entity_decode($m[1], ENT_QUOTES);
+        $this->assertNotSame($fullLink, $text, 'The long Link must not be shown in full.');
+
+        return preg_replace('/[^x]+$/u', '', $text);
+    }
+
     public function testSearchQueryReportListsLoggedQueries()
     {
         SearchLog::logHit('Report Query');
