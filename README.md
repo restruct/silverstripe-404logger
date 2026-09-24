@@ -13,7 +13,7 @@ Requirements
 ------------
 
 * Silverstripe 5 or 6 (`silverstripe/framework`)
-* PHP 8.1 or newer
+* PHP 8.1 or newer on Silverstripe 5; Silverstripe 6 itself requires PHP 8.3
 * Optional: `silverstripe/reports` for the two CMS reports, and `silverstripe/cms` for search
   query logging. Both come with `silverstripe/recipe-cms`. Without them the 404 log is still
   written, but there is no report to view it in.
@@ -34,7 +34,7 @@ Version compatibility
 | Branch | Module version | Silverstripe | PHP |
 |--------|----------------|--------------|-----|
 | `main` | `3.x` | `^5 \|\| ^6` | `^8.1` |
-| (tags only) | `2.0.2` | `^4 \|\| ^5 \|\| ^6` (declared; not tested on 6) | not declared |
+| (tags only) | `2.0.2` | `^4 \|\| ^5 \|\| ^6` (declared ^6; known broken on 6 - use 3.x) | not declared |
 | (tags only) | `2.0.1` | `^4 \|\| ^5` | not declared |
 | (tags only) | `2.0.0` | `^4` | not declared |
 
@@ -59,9 +59,9 @@ Logged search queries are in the same section as 'Search words report'.
 
 * Only responses with status 404. Other error codes are ignored.
 * The logged link is the request URL relative to the site root, including the query string.
-* Only **external** referrers are logged. A 404 whose referrer is on the site's own host is skipped
-  (internal broken links belong in a site-internal link checker). The host is compared without its
-  port.
+* Only **external** referrers are logged. A 404 whose referrer is on the host the request was
+  made on (its `Host` header, also when `Director.alternate_base_url` is set) is skipped (internal
+  broken links belong in a site-internal link checker). The host is compared without its port.
 * A request without a referrer is logged with referrer `unknown`.
 * Each link + referrer combination is one row; repeat hits increase its count.
 * Links and referrers longer than 2048 characters are truncated to fit the column.
