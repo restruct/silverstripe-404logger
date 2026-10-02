@@ -16,6 +16,7 @@
     <testsuites>
         <testsuite name="404logger">
             <directory>vendor/restruct/silverstripe-404logger/tests</directory>
+            <exclude>vendor/restruct/silverstripe-404logger/tests/browser</exclude>
         </testsuite>
     </testsuites>
 </phpunit>
