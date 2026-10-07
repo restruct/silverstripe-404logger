@@ -83,8 +83,10 @@ the Reports section). Logging does not depend on it: hits are logged for every v
 * Logged from the request parameter(s) configured below, on any front-end page.
 * Queries are trimmed, lower-cased and truncated to 255 characters; each distinct query is one row
   with a hit count. Empty values and array values (`?Search[]=...`) are ignored.
-* Noise is not logged (see below): single characters, strings that are mostly not letters
-  (`2026`, `x1y2z3`), injection probes (`65'123`, `1 and 1=1`, `<script>`) and file names.
+* Noise is not logged (see below): single characters (except in Chinese, Japanese and Korean),
+  bare numbers and dates (`2026`, `12-34-56`), strings that are almost all symbols (`%%%`),
+  injection probes (`65'123`, `1 and 1=1`, `<script>`) and file names (`logo.png`). Queries such as
+  `c++`, `1234 ab`, `100%`, `node.js` and `kids' books` are kept.
 
 ### Configuration
 
@@ -92,13 +94,14 @@ the Reports section). Logging does not depend on it: hits are logged for every v
 |--------|---------|--------|
 | `FourOhFourLog.category_patterns` | see below | Regex patterns per category, checked in order |
 | `FourOhFourLog.ignore_categories` | `scanner: true`, `probe: true` | Categories whose hits are not logged |
-| `FourOhFourLog.ignore_patterns` | none | Extra regexes whose hits are not logged, whatever their category |
+| `FourOhFourLog.ignore_patterns` | none | Extra regexes whose hits are not logged, whatever their category or referrer |
+| `FourOhFourLog.ignore_only_without_referrer` | `true` | An ignored `scanner` hit is only dropped when it has no referrer |
 | `FourOhFourReport.link_display_length` | `120` | Characters of a link or referrer shown in the report grid |
 | `SearchLog.search_query_param` | `'Search'` | GET parameter whose value is logged, or a list of them |
 | `SearchLog.ignore_noise` | `true` | Drop noise queries before any database query |
 | `SearchLog.min_query_length` | `2` | Shorter queries are noise |
-| `SearchLog.min_letter_ratio` | `0.5` | Queries with a smaller share of letters and spaces are noise; `0` switches this off |
-| `SearchLog.noise_patterns` | `sql`, `quote`, `markup`, `filename` | Regexes that mark a query as noise |
+| `SearchLog.min_alnum_ratio` | `0.3` | Queries with a smaller share of letters, digits and spaces are noise; `0` switches this off |
+| `SearchLog.noise_patterns` | `sql`, `quote`, `markup`, `filename`, `numbers_only` | Regexes that mark a query as noise |
 
 #### 404 categories
 
@@ -109,13 +112,23 @@ included** (eg `wp-login.php?action=register`), and are full PCRE patterns with 
 | Category | What it catches (defaults) | Logged by default |
 |----------|----------------------------|-------------------|
 | `probe` | Browsers and devices asking on their own initiative: `.well-known/*` (passkey-endpoints, traffic-advice, change-password, ...), `apple-touch-icon*`, `favicon*`, `robots.txt`, `manifest.json`, `sitemap*.xml`, `autodiscover/` | no |
-| `scanner` | Vulnerability scanners: `*.php` and other script extensions, dotfiles (`.env`, `.git/`), WordPress and Joomla paths, backup and key files (`*.sql`, `*.zip`, `*.pem` outside `assets/`), `*.json` and other credential guesses, admin tools (`phpmyadmin`, `actuator`), `vendor/`, path traversal, `@fs/` and injection strings | no |
+| `scanner` | Vulnerability scanners: `*.php` and other script extensions, dotfiles (`.env`, `.git/`), WordPress's own paths (`wp-admin/`, `wp-login.php`, `xmlrpc.php`) and Joomla paths, secret and dump files anywhere (`*.sql`, `*.bak`, `*.pem`), archives, logs and `*.json` at the site root only (`backup.zip`, `error.log`, `config.json`), credential files, admin tools (`phpmyadmin` anywhere; `actuator/`, `jenkins/`, `administrator/` as the first segment only), `vendor/composer/`, `node_modules/`, path traversal, `@fs/` and injection strings | no, unless the hit has a referrer (see below) |
 | `asset` | A missing file: anything under `assets/` or `_resources/`, or a file extension (images, documents, media, css/js, fonts) | yes |
 | `page` | Everything else | yes |
 
 Probes are checked first (so `manifest.json` is a probe, not a credential guess), then scanners (so
 `assets/shell.php` is a scanner, not a missing asset), then assets. The category is stored on the
 row (`FourOhFourLog.Category`) and refreshed on every hit.
+
+The scanner patterns match file names and path segments, never a bare word, so pages such as
+`team/jenkins-smith`, `news/wordpress-vs-silverstripe` or `downloads/brochure.zip` stay ordinary
+pages and assets.
+
+**Scanner hits with a referrer are logged.** Scanners rarely send a `Referer` header, while a real
+broken inbound link to an old `.php` or WordPress URL usually comes with the page that links to it.
+So with `ignore_only_without_referrer: true` (the default) a scanner hit is only dropped when it has
+no referrer. Set it to `false` to drop every scanner hit. Probes are dropped either way, and
+`ignore_patterns` apply whatever the referrer.
 
 Patterns are keyed by name, so a project can switch one off, add its own, or add a category:
 
@@ -128,8 +141,8 @@ FourOhFourLog:
     legacy: true
   category_patterns:
     scanner:
-      # This site serves JSON at the root: do not treat *.json as a credential guess
-      json: null
+      # This site serves JSON at the root: do not treat /*.json as a credential guess
+      root_json: null
     # A category of its own
     legacy:
       old_site: '~^old-site/~'
@@ -167,6 +180,31 @@ Run a database build. It adds `FourOhFourLog.LinkHash` (with a unique index) and
 `FourOhFourLog.Category`, and an index on `SearchLog.Query`. It is safe on a table that already
 holds duplicate rows: existing rows get `NULL` in `LinkHash`, and a unique index allows any number
 of `NULL`s.
+
+**What is no longer stored.** From 3.1, scanner 404s without a referrer, device probes and noise
+search queries are dropped by default, where 3.0 stored everything. That is the point of the
+release, but check it fits your site, because a dropped hit is gone: there is nothing to report on
+later. Typical cases that want a different setting:
+
+* A site migrated from WordPress, plain PHP or ASP, whose old `*.php`/`*.asp` URLs and `wp-content/`
+  links still get traffic from bookmarks and search engines (which send no referrer): set
+  `scanner: false` under `ignore_categories`, or switch off the specific patterns (`script_ext`,
+  `wordpress`) under `category_patterns.scanner`.
+* Downloads served from outside `assets/` at the site root (`/price-list.zip`, `/data.json`):
+  switch off `root_backups` or `root_json`.
+* A search where short codes, numbers or file names are real queries: adjust
+  `min_query_length`, `min_alnum_ratio` or `noise_patterns`.
+
+To restore 3.0's behaviour completely:
+
+```yaml
+FourOhFourLog:
+  ignore_categories:
+    scanner: false
+    probe: false
+SearchLog:
+  ignore_noise: false
+```
 
 Then run the merge task once:
 

@@ -31,7 +31,9 @@ class SearchLog
     private static $ignore_noise = true;
 
     /**
-     * Queries shorter than this many characters (after trimming) are noise.
+     * Queries shorter than this many characters (after trimming) are noise. Not applied to a
+     * query in a script written without spaces (Chinese, Japanese, Korean), where one character
+     * can be a whole word.
      *
      * @config
      * @var int
@@ -39,13 +41,14 @@ class SearchLog
     private static $min_query_length = 2;
 
     /**
-     * Queries in which fewer than this share of the characters are letters or spaces are noise
-     * ('2026', '%%%', 'x1y2z3', random tokens). 0 switches the check off.
+     * Queries in which fewer than this share of the characters are letters, digits or spaces are
+     * noise: meant for strings that are almost all symbols ('%%%', '+-+-'), so the default is low
+     * enough to keep 'c++', '100%', 'f-16' and '€ 50'. 0 switches the check off.
      *
      * @config
      * @var float
      */
-    private static $min_letter_ratio = 0.5;
+    private static $min_alnum_ratio = 0.3;
 
     /**
      * Patterns that mark a query as noise: name => full PCRE pattern, matched against the
@@ -58,14 +61,18 @@ class SearchLog
         # SQL injection probes. Keywords only count in an injection shape, so a search for
         # 'select' or 'union' alone, or 'select a course from the list', is kept.
         'sql' => '~(\bunion\s+(all\s+)?select\b|\b(sleep|benchmark)\s*\(|\bwaitfor\s+delay\b|\b(or|and)\s+[\'"]?\d+[\'"]?\s*=\s*[\'"]?\d+|--\s*$|/\*|;\s*(drop|select|insert|update|delete)\b)~i',
-        # A single quote or backtick after a digit or not followed by a letter, eg 65'123 or
-        # amsterdam' (an injection probe's first step). An apostrophe inside or at the start of a
-        # word (foto's, 's-hertogenbosch, 't) is not noise.
-        'quote' => '~(?<=\d)[\'`]|[\'`](?!\pL)~u',
+        # A single quote or backtick followed by a digit, a symbol or the end of the query, eg
+        # 65'123, 1'='1 or amsterdam' (an injection probe's first step). Followed by a letter or a
+        # space it is ordinary text: foto's, 70's, 's-hertogenbosch, kids' books, rock 'n' roll.
+        'quote' => '~[\'`](?=[^\pL\s]|$)~u',
         # Markup, template and escape injection.
         'markup' => '~[<>{}\[\]\\\\]|\$\{~',
-        # File names: someone, or something, pasting an asset or script path.
-        'filename' => '~\.(php\d?|asp|aspx|jsp|js|css|png|jpe?g|gif|webp|svg|env)$~i',
+        # File names: someone, or something, pasting an asset or script path. Not .js or .css:
+        # 'node.js' and 'vue.js' are things people search for.
+        'filename' => '~\.(php\d?|asp|aspx|jsp|png|jpe?g|gif|webp|svg|env)$~i',
+        # Only digits and separators: years, dates, phone-number fragments ('2026', '12-34-56').
+        # A number with a letter or a unit ('1234 ab', 'sku 12345', '100%', '€ 50') is kept.
+        'numbers_only' => '~^[\d\s.,:/-]+$~',
     );
 
     private static $db = array(
@@ -149,15 +156,20 @@ class SearchLog
 
         $query = mb_strtolower(trim((string) $query));
         $length = mb_strlen($query);
-        if ($length < (int) $config->get('min_query_length')) {
+        # One Han, kana or Hangul character can be a whole word, so the length rule skips them.
+        $spaceless = preg_match('~[\p{Han}\p{Hiragana}\p{Katakana}\p{Hangul}]~u', $query);
+        if (!$spaceless && $length < (int) $config->get('min_query_length')) {
+            return true;
+        }
+        if ($length === 0) {
             return true;
         }
 
-        $minRatio = (float) $config->get('min_letter_ratio');
-        if ($minRatio > 0 && $length > 0) {
-            # Letters in any script, and spaces (so 'iso 9001' passes at the default 0.5).
-            $letters = preg_match_all('~[\pL\s]~u', $query);
-            if ($letters !== false && $letters / $length < $minRatio) {
+        $minRatio = (float) $config->get('min_alnum_ratio');
+        if ($minRatio > 0) {
+            # Letters and digits in any script, and spaces.
+            $wordChars = preg_match_all('~[\pL\pN\s]~u', $query);
+            if ($wordChars !== false && $wordChars / $length < $minRatio) {
                 return true;
             }
         }

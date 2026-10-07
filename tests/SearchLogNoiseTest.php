@@ -64,6 +64,20 @@ class SearchLogNoiseTest extends SapphireTest
             'accented' => ['über été'],
             'keyword alone' => ['select'],
             'keywords in a sentence' => ['select a course from the list'],
+            // Real queries that an earlier, stricter version of the filter dropped.
+            'symbols in a name' => ['c++'],
+            'postcode with space' => ['1234 ab'],
+            'postcode' => ['1234ab'],
+            'sku' => ['sku 12345'],
+            'model number' => ['f-16'],
+            'percentage' => ['100%'],
+            'amount' => ['€ 50'],
+            'node.js' => ['node.js'],
+            'vue.js' => ['vue.js'],
+            'possessive plural' => ["kids' books"],
+            'elision' => ["rock 'n' roll"],
+            'decade' => ["70's music"],
+            'single CJK character' => ['水'],
         ];
     }
 
@@ -96,11 +110,17 @@ class SearchLogNoiseTest extends SapphireTest
         $this->assertFalse(SearchLog::isNoise('abcd'));
     }
 
-    public function testLetterRatioCanBeSwitchedOff()
+    public function testSymbolRatioDropsAlmostAllSymbolQueries()
     {
-        SearchLog::config()->set('min_letter_ratio', 0);
+        $this->assertTrue(SearchLog::isNoise('%%%'));
+        $this->assertTrue(SearchLog::isNoise('+-+-+ a'));
+    }
 
-        $this->assertFalse(SearchLog::isNoise('2026'));
+    public function testSymbolRatioCanBeSwitchedOff()
+    {
+        SearchLog::config()->set('min_alnum_ratio', 0);
+
+        $this->assertFalse(SearchLog::isNoise('%%%'));
     }
 
     public function testNoisePatternCanBeSwitchedOff()

@@ -79,6 +79,49 @@ class FourOhFourCategoryTest extends SapphireTest
             ['admin-assistant-vacancy', 'page'],
             // template code leaking into a link is the site's own broken link, not an attack
             ['item.cost < item.total || x', 'page'],
+            // Real inbound links that an earlier, broader version of the scanner patterns dropped:
+            // a scanner-ish word in a slug or folder, or an archive/log/json file in a folder.
+            ['team/jenkins-smith', 'page'],
+            ['events/solr-workshop', 'page'],
+            ['telescope-hire', 'page'],
+            ['hudson-bay-trip', 'page'],
+            ['actuator-repair', 'page'],
+            ['ecp-programme', 'page'],
+            ['about/administrator', 'page'],
+            ['xmlrpc-explained', 'page'],
+            ['news/wordpress-vs-silverstripe', 'page'],
+            ['nieuws/wp-plugin-review', 'page'],
+            ['wiki/WP-Rating', 'page'],
+            ['vendor/acme-bakery', 'page'],
+            ['careers/.env-engineer', 'page'],
+            ['files/prijslijst-2020.zip', 'asset'],
+            ['downloads/brochure.zip', 'asset'],
+            ['producten/model-x.old', 'page'],
+            ['reports/2024.log', 'page'],
+            ['portfolio/project.json', 'page'],
+            ['api/data.json', 'page'],
+            // ... while the real probes for those names still are scanners.
+            ['jenkins/script', 'scanner'],
+            ['solr/admin/cores', 'scanner'],
+            ['telescope/requests', 'scanner'],
+            ['administrator/index.php', 'scanner'],
+            ['administrator/', 'scanner'],
+            ['wp-admin/', 'scanner'],
+            ['wp-json/wp/v2/users', 'scanner'],
+            ['wp-config.php.bak', 'scanner'],
+            ['wordpress/wp-login.php', 'scanner'],
+            ['wp/wp-includes/', 'scanner'],
+            ['some/blog/wlwmanifest.xml', 'scanner'],
+            ['vendor/composer/installed.json', 'scanner'],
+            ['node_modules/.bin/x', 'scanner'],
+            ['.env.old', 'scanner'],
+            ['.env_backup', 'scanner'],
+            ['error.log', 'scanner'],
+            ['core/config/main.bak', 'scanner'],
+            ['dump.sql.gz', 'scanner'],
+            ['phpMyAdmin-5.2/', 'scanner'],
+            ['phpinfo', 'scanner'],
+            ['web.config.original', 'scanner'],
         ];
     }
 
@@ -89,6 +132,50 @@ class FourOhFourCategoryTest extends SapphireTest
     public function testCategorise(string $link, string $expected)
     {
         $this->assertSame($expected, FourOhFourLog::categorise($link), $link);
+    }
+
+    /**
+     * Scanners rarely send a Referer; a real broken inbound link to an old .php URL usually
+     * does. By default (ignore_only_without_referrer) a scanner hit WITH a referrer is logged.
+     */
+    public function testScannerHitWithReferrerIsLoggedByDefault()
+    {
+        $log = FourOhFourLog::logHit('index.php?page=contact', 'https://partner.example/links');
+
+        $this->assertInstanceOf(FourOhFourLog::class, $log);
+        $this->assertSame('scanner', $log->Category);
+        $this->assertNull(FourOhFourLog::logHit('index.php?page=contact', 'unknown'), 'no referrer: dropped');
+        $this->assertNull(FourOhFourLog::logHit('index.php?page=contact', ''), 'empty referrer: dropped');
+        $this->assertCount(1, FourOhFourLog::get());
+    }
+
+    public function testScannerHitWithReferrerIsDroppedWhenTheOptionIsOff()
+    {
+        FourOhFourLog::config()->set('ignore_only_without_referrer', false);
+
+        $this->assertNull(FourOhFourLog::logHit('index.php?page=contact', 'https://partner.example/links'));
+        $this->assertCount(0, FourOhFourLog::get());
+    }
+
+    /**
+     * The referrer exception is for scanners only: browsers and devices send probes with a
+     * referrer too (the page they were on).
+     */
+    public function testProbeWithReferrerIsStillDropped()
+    {
+        $this->assertNull(FourOhFourLog::logHit('apple-touch-icon.png', 'https://partner.example/'));
+        $this->assertCount(0, FourOhFourLog::get());
+    }
+
+    /**
+     * ignore_patterns are the project's explicit choice and apply whatever the referrer.
+     */
+    public function testIgnorePatternsApplyWithAReferrerToo()
+    {
+        FourOhFourLog::config()->merge('ignore_patterns', ['legacy' => '~^old-site/~']);
+
+        $this->assertNull(FourOhFourLog::logHit('old-site/page', 'https://partner.example/'));
+        $this->assertCount(0, FourOhFourLog::get());
     }
 
     public function testScannerAndProbeHitsAreNotLoggedByDefault()
@@ -150,7 +237,7 @@ class FourOhFourCategoryTest extends SapphireTest
      */
     public function testDefaultPatternCanBeSwitchedOff()
     {
-        FourOhFourLog::config()->merge('category_patterns', ['scanner' => ['json' => null]]);
+        FourOhFourLog::config()->merge('category_patterns', ['scanner' => ['root_json' => null]]);
 
         $this->assertSame('page', FourOhFourLog::categorise('config.json'));
         $this->assertSame('scanner', FourOhFourLog::categorise('wp-login.php'));

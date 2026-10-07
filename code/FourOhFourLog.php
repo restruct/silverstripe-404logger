@@ -67,23 +67,37 @@ class FourOhFourLog
             'autodiscover' => '~(^|/)autodiscover/~i',
         ),
         # Vulnerability scanners and other bad actors. A Silverstripe site serves no .php URL,
-        # no dotfile and no backup archive, so a request for one is never a broken link.
+        # no dotfile and no backup archive, so a request for one is rarely a broken link.
+        # Every pattern is anchored on a path segment or file name, never on a bare word: an
+        # ignored hit is never stored, so a pattern that also matches real pages ('jenkins-smith',
+        # 'wordpress-vs-silverstripe', 'downloads/brochure.zip') silently loses real broken links.
+        # A scanner hit WITH a referrer is still logged by default, see ignore_only_without_referrer.
         self::CATEGORY_SCANNER => array(
             'script_ext' => '~\.(php\d?|phtml|phar|asp|aspx|ashx|jsp|jspx|cgi|py|rb)(\W|_|$)~i',
-            'dotfiles' => '~(^|/)\.(env|git|svn|hg|bzr|aws|ssh|docker|vscode|idea|ds_store|htaccess|htpasswd|npmrc|bash_history|circleci|travis)(?![a-z])~i',
-            'wordpress' => '~(^|/)(wp-[a-z]+|wp/|wordpress|xmlrpc|wlwmanifest)~i',
+            # The dotfile name must end there ('.env', '.env.old', '.env_bak', '.git/HEAD'), so a
+            # slug such as 'careers/.env-engineer' is not one.
+            'dotfiles' => '~(^|/)\.(env|git|svn|hg|bzr|aws|ssh|docker|vscode|idea|ds_store|htaccess|htpasswd|npmrc|bash_history|circleci|travis)([/.?_\d]|$)~i',
+            # WordPress's own paths and files only, not articles about WordPress.
+            'wordpress' => '~(^|/)(wp-(admin|content|includes|login|json|config|cron)(?=[/.?]|$)|xmlrpc\.php|wlwmanifest\.xml)|^(wp|wordpress)/~i',
             # Joomla and web-shell paths.
             'cms_probes' => '~(^|/)(administrator/components|components?/com_|alfa_?data|alfacgiapi)|tmpl=component~i',
-            # Backup, key and config file guesses, except under the asset folders (a missing
-            # assets/report.zip is a real broken link).
-            # A second suffix is allowed ('old.sql.gz', 'site.tar.z').
-            'backups_keys' => '~^(?!(assets|resources|_resources)/)[^?]*\.(sql|bak|old|orig|save|swp|tar|tgz|gz|bz2|rar|7z|zip|jar|war|dat|dump|pem|key|crt|p12|pfx|tfstate|kdbx|sqlite3?|db|mdb|log|ini|conf|cfg|ya?ml|env)(\.[a-z0-9]{1,4})?(\?|$)~i',
-            # *.json outside the asset folders: credential and config guesses (manifest.json and
-            # friends are caught as probes first).
-            'json' => '~^(?!(assets|resources|_resources)/)[^?]*\.json(\?|$)~i',
-            'credentials' => '~(^|/)(id_(rsa|dsa|ecdsa|ed25519)(\.pub)?|(credentials?|secrets?)\.(json|ya?ml|txt|xml|env|ini|php)|service-?account[^/]*\.json|firebase[^/]*\.json|(composer|package(-lock)?|yarn|auth|sftp-config|docker-compose)\.(json|lock|ya?ml)|web\.config|phpinfo|server-(status|info))(\W|$)~i',
-            'admin_tools' => '~(^|/)(phpmyadmin|pma|myadmin|mysqladmin|adminer|administrator|cgi-bin|actuator|telescope|_profiler|_ignition|solr|jenkins|hudson|manager/html|owa|ecp|boaform|hnap1|gponform)(\W|$)~i',
-            'vendor_dirs' => '~^(vendor|node_modules)/~i',
+            # Secret and dump files: never a legitimate link, wherever they are (outside the asset
+            # folders).
+            'secrets' => '~^(?!(assets|resources|_resources)/)[^?]*\.(sql|bak|swp|pem|tfstate|kdbx|env)(\.[a-z0-9]{1,4})?(\?|$)~i',
+            # Archives, logs, config and old copies: only at the site root, where a scanner guesses
+            # 'backup.zip' or 'error.log'. In a folder ('downloads/brochure.zip', 'reports/2024.log')
+            # they are a real missing file and fall through to 'asset' or 'page'.
+            'root_backups' => '~^[^/?]*\.(old|orig|save|tar|tgz|gz|bz2|rar|7z|zip|jar|war|dat|dump|key|crt|p12|pfx|sqlite3?|db|mdb|log|ini|conf|cfg|ya?ml)(\.[a-z0-9]{1,4})?(\?|$)~i',
+            # *.json at the site root: credential and config guesses ('config.json'). In a folder
+            # ('api/data.json') it is left alone. manifest.json and friends are probes, checked first.
+            'root_json' => '~^[^/?]*\.json(\?|$)~i',
+            'credentials' => '~(^|/)(id_(rsa|dsa|ecdsa|ed25519)(\.pub)?|(credentials?|secrets?)\.(json|ya?ml|txt|xml|env|ini|php)|service-?account[^/]*\.json|firebase[^/]*\.json|(composer|package(-lock)?|yarn|auth|sftp-config|docker-compose)\.(json|lock|ya?ml)|web\.config[^/]*|phpinfo[^/]*|server-(status|info))(/|\?|$)~i',
+            # Admin tools whose name is unambiguous anywhere in the path.
+            'admin_tools' => '~(^|/)(phpmyadmin[\w.-]*|pma|myadmin|mysqladmin|cgi-bin|_profiler|_ignition|manager/html|boaform|hnap1|gponform)(/|\?|$)~i',
+            # Names that are also ordinary words ('team/jenkins-smith', 'about/administrator'):
+            # only as the first path segment, exactly.
+            'admin_tools_root' => '~^(administrator|actuator|telescope|solr|jenkins|hudson|owa|ecp)(/|\?|$)~i',
+            'vendor_dirs' => '~(^|/)(vendor/(composer|bin|phpunit|autoload)|node_modules/)~i',
             # Path traversal (also with a full-width slash or '?' padding), system files, NUL
             # bytes, script and SQL injection, Vite dev-server file access.
             # Plain '<' and '>' are NOT scanner signs: template code leaking into an href
@@ -122,6 +136,17 @@ class FourOhFourLog
      */
     private static $ignore_patterns = array();
 
+    /**
+     * When true, an ignored 'scanner' hit is only dropped when it came WITHOUT a referrer.
+     * Scanners rarely send a Referer; a real broken inbound link (an old WordPress, PHP or ASP
+     * URL that another site still links to) usually does, so it stays visible. Applies to the
+     * scanner category only: probes are dropped whatever the referrer.
+     *
+     * @config
+     * @var bool
+     */
+    private static $ignore_only_without_referrer = true;
+
     private static $summary_fields = array(
         'Referrer' => 'Referrer',
         'Link' => 'Incoming link',
@@ -153,7 +178,7 @@ class FourOhFourLog
 
         # Categorise and filter BEFORE touching the database, so scanner noise costs no query.
         $category = static::categorise($link);
-        if (static::isIgnored($link, $category)) {
+        if (static::isIgnored($link, $category, (string) $ref)) {
             return null;
         }
 
@@ -240,7 +265,18 @@ class FourOhFourLog
      */
     public static function linkHash($link, $ref)
     {
-        return sha1(mb_strtolower((string) $link) . '|' . mb_strtolower((string) $ref));
+        # The link is hashed WITHOUT its last possible character. A pre-3.1 row stored as '/path'
+        # was cut at the column size including that slash, so once normalised it is one character
+        # shorter than the same long URL logged today (cut without a slash). Hashing one character
+        # less than the column holds gives both the same hash; two URLs that differ only in their
+        # 2048th character share a row, which is harmless.
+        $size = (int) static::singleton()->dbObject('Link')->getSize();
+        $link = (string) $link;
+        if ($size > 1) {
+            $link = mb_substr($link, 0, $size - 1);
+        }
+
+        return sha1(mb_strtolower($link) . '|' . mb_strtolower((string) $ref));
     }
 
     /**
@@ -263,21 +299,27 @@ class FourOhFourLog
     }
 
     /**
-     * Whether a hit on this link is dropped: its category is in $ignore_categories, or it matches
-     * one of $ignore_patterns.
+     * Whether a hit on this link is dropped: its category is in $ignore_categories (for a
+     * scanner hit with a referrer, only when $ignore_only_without_referrer is off), or it matches
+     * one of $ignore_patterns (always, whatever the referrer).
      *
      * @param string $link With or without leading slash
      * @param string|null $category Pass it when already known, to skip categorising again
+     * @param string|null $ref The referrer; null or 'unknown' means none
      * @return bool
      */
-    public static function isIgnored($link, $category = null)
+    public static function isIgnored($link, $category = null, $ref = null)
     {
         if ($category === null) {
             $category = static::categorise($link);
         }
         $ignored = (array) static::config()->get('ignore_categories');
         if (!empty($ignored[$category])) {
-            return true;
+            $hasReferrer = is_string($ref) && trim($ref) !== '' && $ref !== 'unknown';
+            if (!($category === self::CATEGORY_SCANNER && $hasReferrer
+                    && static::config()->get('ignore_only_without_referrer'))) {
+                return true;
+            }
         }
 
         return static::matchesAny(static::patternSubject($link), (array) static::config()->get('ignore_patterns'));

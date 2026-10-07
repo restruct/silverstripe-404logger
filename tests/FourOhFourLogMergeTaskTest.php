@@ -201,6 +201,28 @@ class FourOhFourLogMergeTaskTest extends SapphireTest
     }
 
     /**
+     * Long links: a pre-3.1 '/...' row was cut at 2048 characters INCLUDING the slash, so after
+     * normalising it is one character shorter than the same URL logged today. The task, the
+     * fallback lookup and later hits must all agree on one row for it.
+     */
+    public function testLongLegacyLinksStayOneRowAfterTheTask()
+    {
+        $link = 'missing/' . str_repeat('a', 3000);
+        FourOhFourLogHashTest::insertLegacyRow(mb_substr('/' . $link, 0, 2048), 'unknown', 4);
+        FourOhFourLogHashTest::insertLegacyRow(mb_substr($link, 0, 2048), 'unknown', 2);
+
+        $stats = $this->runTask();
+        $this->assertSame(1, $stats['merged'], 'the slashed and unslashed long rows are one');
+
+        FourOhFourLog::logHit($link, 'unknown');
+        FourOhFourLog::logHit('/' . $link, 'unknown');
+
+        $rows = $this->rows();
+        $this->assertCount(1, $rows);
+        $this->assertSame(8, (int) $rows[0]['Count']);
+    }
+
+    /**
      * After the task, logHit() counts on the merged row through the index.
      */
     public function testLogHitUsesTheMergedRow()
