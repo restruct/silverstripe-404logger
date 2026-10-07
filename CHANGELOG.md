@@ -1,5 +1,56 @@
 # Changelog
 
+## 3.1.0 (2026-10-07)
+
+Faster logging on large tables, and much less noise. Backward compatible: run a database build,
+then `FourOhFourLogMergeTask` once (see README, "Upgrading from 3.0").
+
+### Added
+
+- **Indexed lookups.** `FourOhFourLog.LinkHash` (sha1 of the lower-cased link and referrer, with a
+  unique index) replaces the lookup on the two unindexed `Varchar(2048)` columns, and
+  `SearchLog.Query` gets an index. Before this, every logged 404 and every logged search scanned
+  the whole table. The unique index also stops two concurrent first hits from creating two rows.
+- **404 categories:** `probe` (browser and device requests such as `.well-known/passkey-endpoints`,
+  `apple-touch-icon*`, `favicon.ico`), `scanner` (`*.php`, dotfiles, WordPress paths, backup and
+  credential guesses, path traversal, `@fs/`), `asset` (missing files) and `page`. Rule-based
+  (regular expressions in config, `FourOhFourLog.category_patterns`), stored on the row in the new
+  `Category` column.
+- **Ignored categories and patterns.** Hits in `FourOhFourLog.ignore_categories` (default: scanners
+  and probes) or matching `FourOhFourLog.ignore_patterns` are dropped before any database query.
+  A scanner hit WITH a referrer is still logged (`ignore_only_without_referrer`, default `true`):
+  scanners rarely send one, real broken inbound links to old `.php` or WordPress URLs usually do.
+- **Search noise filter.** `SearchLog` drops queries that are too short (`min_query_length`, default
+  2, not applied to Chinese, Japanese or Korean), almost all symbols (`min_alnum_ratio`, default
+  0.3) or match `noise_patterns` (SQL injection shapes, a quote followed by a digit or symbol,
+  markup, file names, bare numbers). Switch it off with `SearchLog.ignore_noise: false`.
+- **`SearchLog.search_query_param` accepts a list** of parameter names; the first one with a value
+  is logged. A single string still works.
+- **`FourOhFourLogMergeTask`**, a one-off upgrade task: fills in `LinkHash` and `Category` on existing
+  rows and merges duplicates (summed count, earliest `Created`, latest `LastEdited`). Chunked,
+  idempotent, with a dry-run option.
+- `FourOhFourLog::categorise()`, `FourOhFourLog::isIgnored()`, `FourOhFourLog::normaliseLink()`,
+  `FourOhFourLog::linkHash()` and `SearchLog::isNoise()`. `logHit()` on both classes now returns the
+  row written, or `null` when the hit was dropped.
+- Tests for all of the above (176 new, 217 in total), and a browser spec for the ignored hits.
+
+### Fixed
+
+- **The same URL was logged twice across an upgrade.** Older versions stored the link with a
+  leading slash (`/path`), later ones without (`path`), so every URL seen before the upgrade got a
+  second row and the first one stopped counting. Links are stored without leading slash now, and
+  the merge task joins existing pairs.
+
+### Changed
+
+- Scanner 404s without a referrer and device-probe 404s are **no longer logged by default**. To
+  keep logging them, set `FourOhFourLog.ignore_categories` `scanner: false` / `probe: false`
+  (README, "Upgrading from 3.0", lists the cases that want this).
+- Search queries that look like noise are no longer logged by default (see above).
+- Until the merge task has run, a 404 that misses the index falls back to the old lookup on rows
+  without a hash, and gives the row it finds its hash. The fallback costs one indexed query once no
+  such rows are left.
+
 ## 3.0.1 (2026-09-25)
 
 ### Fixed
