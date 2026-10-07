@@ -11,11 +11,116 @@ class FourOhFourLog
 {
     private static $singular_name = '404 Log';
 
+    /** Built-in categories, see $category_patterns. Anything no pattern matches is a 'page'. */
+    const CATEGORY_PROBE = 'probe';
+    const CATEGORY_SCANNER = 'scanner';
+    const CATEGORY_ASSET = 'asset';
+    const CATEGORY_PAGE = 'page';
+
     private static $db = array(
         'Referrer' => 'Varchar(2048)',
         'Link' => 'Varchar(2048)',
         'Count' => 'Int',
+        # Lookup key for logHit(): sha1 of the lower-cased link and referrer. Link and Referrer are
+        # Varchar(2048), too long to index in full (utf8mb4: 8 KB a column, InnoDB keys max 3 KB),
+        # so every 404 used to scan the whole table. NULL on rows from before 3.1 until
+        # FourOhFourLogMergeTask (or a hit on that row) fills it in.
+        'LinkHash' => 'Varchar(40)',
+        # One of the $category_patterns keys or 'page', set on write so later reports can filter
+        # on it without re-running the patterns over the whole table.
+        'Category' => 'Varchar(32)',
     );
+
+    private static $indexes = array(
+        # UNIQUE so concurrent first hits cannot create two rows for one link + referrer. Safe to
+        # add on a table that already holds duplicates: the column is new, so every existing row
+        # is NULL, and a UNIQUE index accepts any number of NULLs (MySQL and MariaDB alike).
+        'LinkHash' => array('type' => 'unique', 'columns' => array('LinkHash')),
+    );
+
+    /**
+     * Rule-based categories for a logged link, checked in this order; the first category with a
+     * matching pattern wins, and a link no pattern matches is a 'page'. Each category maps a
+     * name to a full PCRE pattern (delimiters and flags included), so a project can switch one
+     * off by setting its name to null or '' in YAML, or add its own, without copying the rest.
+     * A project can also add categories of its own (a new top-level key).
+     *
+     * Patterns are matched against the link WITHOUT its leading slash, URL-decoded, query string
+     * included (eg 'wp-login.php?action=register').
+     *
+     * Order matters: probes first (so 'manifest.json' is a probe, not a credential guess), then
+     * scanners (so 'assets/shell.php' is a scanner, not a missing asset), then assets.
+     * The defaults were tuned on a 55,000-row production log; they are deliberately narrower
+     * than "anything that looks odd", because an ignored hit is never stored.
+     *
+     * @config
+     * @var array<string, array<string, string|null>>
+     */
+    private static $category_patterns = array(
+        # Browsers, apps and crawlers asking for well-known files on their own initiative.
+        self::CATEGORY_PROBE => array(
+            # passkey-endpoints, traffic-advice, change-password, security.txt, assetlinks.json, ...
+            # but not a script under it ('.well-known/x.php' is a scanner).
+            'well_known' => '~^\.well-known/(?![^?]*\.php)~i',
+            'icons' => '~(^|/)(apple-touch-icon[^/]*|android-chrome-[^/]*|mstile-[^/]*|favicon[^/]*)\.(png|ico|svg)(\?|$)~i',
+            'site_files' => '~^(robots\.txt|humans\.txt|security\.txt|ads\.txt|app-ads\.txt|sellers\.json|crossdomain\.xml|clientaccesspolicy\.xml|browserconfig\.xml|site\.webmanifest|manifest\.(json|webmanifest)|apple-app-site-association|sitemap[^/]*\.xml(\.gz)?)(\?|$)~i',
+            'autodiscover' => '~(^|/)autodiscover/~i',
+        ),
+        # Vulnerability scanners and other bad actors. A Silverstripe site serves no .php URL,
+        # no dotfile and no backup archive, so a request for one is never a broken link.
+        self::CATEGORY_SCANNER => array(
+            'script_ext' => '~\.(php\d?|phtml|phar|asp|aspx|ashx|jsp|jspx|cgi|py|rb)(\W|_|$)~i',
+            'dotfiles' => '~(^|/)\.(env|git|svn|hg|bzr|aws|ssh|docker|vscode|idea|ds_store|htaccess|htpasswd|npmrc|bash_history|circleci|travis)(?![a-z])~i',
+            'wordpress' => '~(^|/)(wp-[a-z]+|wp/|wordpress|xmlrpc|wlwmanifest)~i',
+            # Joomla and web-shell paths.
+            'cms_probes' => '~(^|/)(administrator/components|components?/com_|alfa_?data|alfacgiapi)|tmpl=component~i',
+            # Backup, key and config file guesses, except under the asset folders (a missing
+            # assets/report.zip is a real broken link).
+            # A second suffix is allowed ('old.sql.gz', 'site.tar.z').
+            'backups_keys' => '~^(?!(assets|resources|_resources)/)[^?]*\.(sql|bak|old|orig|save|swp|tar|tgz|gz|bz2|rar|7z|zip|jar|war|dat|dump|pem|key|crt|p12|pfx|tfstate|kdbx|sqlite3?|db|mdb|log|ini|conf|cfg|ya?ml|env)(\.[a-z0-9]{1,4})?(\?|$)~i',
+            # *.json outside the asset folders: credential and config guesses (manifest.json and
+            # friends are caught as probes first).
+            'json' => '~^(?!(assets|resources|_resources)/)[^?]*\.json(\?|$)~i',
+            'credentials' => '~(^|/)(id_(rsa|dsa|ecdsa|ed25519)(\.pub)?|(credentials?|secrets?)\.(json|ya?ml|txt|xml|env|ini|php)|service-?account[^/]*\.json|firebase[^/]*\.json|(composer|package(-lock)?|yarn|auth|sftp-config|docker-compose)\.(json|lock|ya?ml)|web\.config|phpinfo|server-(status|info))(\W|$)~i',
+            'admin_tools' => '~(^|/)(phpmyadmin|pma|myadmin|mysqladmin|adminer|administrator|cgi-bin|actuator|telescope|_profiler|_ignition|solr|jenkins|hudson|manager/html|owa|ecp|boaform|hnap1|gponform)(\W|$)~i',
+            'vendor_dirs' => '~^(vendor|node_modules)/~i',
+            # Path traversal (also with a full-width slash or '?' padding), system files, NUL
+            # bytes, script and SQL injection, Vite dev-server file access.
+            # Plain '<' and '>' are NOT scanner signs: template code leaking into an href
+            # ('a < b || ...') is a broken link on the site itself, and stays a 'page'.
+            # 'union select' needs real whitespace, so a slug like 'union-select-committee' does
+            # not match; a bare 'select ... from' is not used, it occurs in ordinary search links.
+            'injection' => '~(\.\.([/\\\\?]|\x{FF0F})|(^|/)\.{3,}/|(^|/)(etc/(passwd|shadow|hosts)|var/log/|root/\.|proc/self|proc/version)|win\.ini|\x00|"|<\s*(script|img|svg|iframe)\b|javascript:|\bon(error|load)\s*=|\$\{|\bunion(\s|\+)+(all(\s|\+)+)?select\b|\b(sleep|benchmark)\s*\(|@fs/|base64_decode|eval\()~iu',
+        ),
+        # A missing file rather than a missing page.
+        self::CATEGORY_ASSET => array(
+            'asset_dirs' => '~^(assets|resources|_resources)/~i',
+            'file_ext' => '~^[^?]*\.(jpe?g|png|gif|webp|avif|svg|ico|bmp|tiff?|heic|pdf|docx?|xlsx?|pptx?|odt|ods|odp|csv|txt|rtf|epub|mp3|m4a|wav|ogg|mp4|m4v|webm|mov|avi|zip|css|js|mjs|map|woff2?|ttf|eot|otf)(\?|$)~i',
+        ),
+    );
+
+    /**
+     * Categories whose hits are not logged at all: checked before any database query, so an
+     * ignored hit costs no query and no write. Keyed by category so a project can switch one
+     * back on (`probe: false`) or add its own; values are booleans.
+     *
+     * @config
+     * @var array<string, bool>
+     */
+    private static $ignore_categories = array(
+        self::CATEGORY_SCANNER => true,
+        self::CATEGORY_PROBE => true,
+    );
+
+    /**
+     * Extra patterns whose hits are not logged, whatever their category: name => full PCRE
+     * pattern, matched like $category_patterns (link without leading slash, URL-decoded, query
+     * string included). Checked before any database query.
+     *
+     * @config
+     * @var array<string, string|null>
+     */
+    private static $ignore_patterns = array();
 
     private static $summary_fields = array(
         'Referrer' => 'Referrer',
@@ -28,31 +133,213 @@ class FourOhFourLog
         'Link',
     );
 
+    /**
+     * Log one 404: count it on the row for this link + referrer, or create that row.
+     * A hit in an ignored category or matching an ignore pattern is dropped before any query.
+     *
+     * @param string $link Request URL relative to the site root; a leading slash is stripped
+     * @param string $ref Referrer, or 'unknown'
+     * @return FourOhFourLog|null The row written, or null when the hit was ignored
+     */
     public static function logHit($link, $ref)
     {
+        # Stored without a leading slash. Rows logged before the Silverstripe 4/5 era were stored
+        # as '/path', later ones as 'path' (HTTPRequest::getURL()), so every old URL got a second
+        # row and the old row's count stopped. FourOhFourLogMergeTask merges existing pairs.
+        $link = static::normaliseLink((string) $link);
+        if ($link === '') {
+            return null;
+        }
+
+        # Categorise and filter BEFORE touching the database, so scanner noise costs no query.
+        $category = static::categorise($link);
+        if (static::isIgnored($link, $category)) {
+            return null;
+        }
+
         # Fit both values to their column BEFORE the lookup. Silverstripe 6 validates Varchar
         # length on write and throws, which turned a long 404 URL into a 500. On Silverstripe 5
         # MySQL (ANSI mode) silently truncated the stored value instead, so the lookup with the
         # full value never matched the stored row again and every hit created a new row.
-        $link = static::fitToField('Link', (string) $link);
+        # The untruncated link is kept for the legacy lookup, which has to rebuild '/' . $link.
+        $fullLink = $link;
+        $link = static::fitToField('Link', $link);
         $ref = static::fitToField('Referrer', (string) $ref);
+        $category = static::fitToField('Category', $category);
+        $hash = static::linkHash($link, $ref);
 
         // create or update log
-        $existing = FourOhFourLog::get()->filter(
-                array(
-                    'Referrer' => $ref,
-                    'Link' => $link
-                    ))->first();
+//        $existing = FourOhFourLog::get()->filter(
+//                array(
+//                    'Referrer' => $ref,
+//                    'Link' => $link
+//                    ))->first();
+        # One indexed lookup. Only when that misses AND rows from before 3.1 are still unhashed,
+        # fall back to the old (unindexed) lookup on Link + Referrer, and give the row found its
+        # hash, so it is found by the index from then on.
+        $existing = static::get()->filter('LinkHash', $hash)->first();
+        if (!$existing) {
+            $existing = static::findUnhashed($fullLink, $link, $ref);
+            if ($existing) {
+                $existing->Link = static::fitToField('Link', static::normaliseLink((string) $existing->Link));
+                $existing->LinkHash = $hash;
+            }
+        }
         if ($existing) {
             $existing->Count = $existing->Count+1;
+            # Re-set on every hit, so a change to the category config shows on the next hit.
+            $existing->Category = $category;
             $existing->write();
-        } else {
-            $log = FourOhFourLog::create();
-            $log->Referrer = $ref;
-            $log->Link = $link;
-            $log->Count = 1;
-            $log->write();
+            return $existing;
         }
+
+        $log = FourOhFourLog::create();
+        $log->Referrer = $ref;
+        $log->Link = $link;
+        $log->LinkHash = $hash;
+        $log->Category = $category;
+        $log->Count = 1;
+        try {
+            $log->write();
+        } catch (\Exception $e) {
+            # Two concurrent first hits: the other request inserted the row between our lookup and
+            # our insert, and the UNIQUE index rejected ours (a ValidationException on both majors,
+            # whose class moved namespace in Silverstripe 6, hence the broad catch). Count the hit
+            # on that row instead. Anything else is rethrown.
+            $existing = static::get()->filter('LinkHash', $hash)->first();
+            if (!$existing) {
+                throw $e;
+            }
+            $existing->Count = $existing->Count+1;
+            $existing->write();
+            return $existing;
+        }
+
+        return $log;
+    }
+
+    /**
+     * The form a link is stored and matched in: without leading slashes.
+     *
+     * @param string $link
+     * @return string
+     */
+    public static function normaliseLink($link)
+    {
+        return ltrim((string) $link, '/');
+    }
+
+    /**
+     * The LinkHash for a (normalised, column-fitted) link and referrer. Lower-cased, so rows stay
+     * keyed case-insensitively, as they were by the old lookup on the case-insensitive Link and
+     * Referrer columns (MySQL's default collations).
+     *
+     * @param string $link
+     * @param string $ref
+     * @return string
+     */
+    public static function linkHash($link, $ref)
+    {
+        return sha1(mb_strtolower((string) $link) . '|' . mb_strtolower((string) $ref));
+    }
+
+    /**
+     * The category of a link: the first $category_patterns category with a matching pattern, or
+     * 'page'.
+     *
+     * @param string $link With or without leading slash
+     * @return string
+     */
+    public static function categorise($link)
+    {
+        $subject = static::patternSubject($link);
+        foreach ((array) static::config()->get('category_patterns') as $category => $patterns) {
+            if (is_array($patterns) && static::matchesAny($subject, $patterns)) {
+                return (string) $category;
+            }
+        }
+
+        return self::CATEGORY_PAGE;
+    }
+
+    /**
+     * Whether a hit on this link is dropped: its category is in $ignore_categories, or it matches
+     * one of $ignore_patterns.
+     *
+     * @param string $link With or without leading slash
+     * @param string|null $category Pass it when already known, to skip categorising again
+     * @return bool
+     */
+    public static function isIgnored($link, $category = null)
+    {
+        if ($category === null) {
+            $category = static::categorise($link);
+        }
+        $ignored = (array) static::config()->get('ignore_categories');
+        if (!empty($ignored[$category])) {
+            return true;
+        }
+
+        return static::matchesAny(static::patternSubject($link), (array) static::config()->get('ignore_patterns'));
+    }
+
+    /**
+     * What the patterns are matched against: the link without leading slash, URL-decoded, so
+     * '%2e%2e/' is seen as '../' and '%40fs/' as '@fs/'.
+     *
+     * @param string $link
+     * @return string
+     */
+    protected static function patternSubject($link)
+    {
+        return rawurldecode(static::normaliseLink($link));
+    }
+
+    /**
+     * @param string $subject
+     * @param array<string, string|null> $patterns name => PCRE pattern; empty values are skipped,
+     *        which is how a project switches off a default pattern in YAML
+     * @return bool
+     */
+    protected static function matchesAny($subject, array $patterns)
+    {
+        foreach ($patterns as $pattern) {
+            if (is_string($pattern) && $pattern !== '' && preg_match($pattern, $subject)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Find a row from before 3.1 (LinkHash still NULL) for this link and referrer, stored with or
+     * without the leading slash. Returns null at the cost of one indexed query once no unhashed
+     * rows are left (after FourOhFourLogMergeTask has run), so the unindexed lookup on the
+     * Varchar(2048) columns only runs on a site that still has old rows.
+     *
+     * @param string $fullLink Normalised link before truncation
+     * @param string $link Normalised link fitted to the column
+     * @param string $ref Referrer fitted to the column
+     * @return FourOhFourLog|null
+     */
+    protected static function findUnhashed($fullLink, $link, $ref)
+    {
+        $unhashed = static::get()->filter('LinkHash', null);
+        if (!$unhashed->exists()) {
+            return null;
+        }
+
+        # Old rows were truncated WITH their slash, so rebuild the slashed form from the full link.
+        $candidates = array_values(array_unique(array(
+            $link,
+            static::fitToField('Link', '/' . $fullLink),
+        )));
+
+        return $unhashed->filter(array(
+            'Referrer' => $ref,
+            'Link' => $candidates,
+        ))->first();
     }
 
     /**

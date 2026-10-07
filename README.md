@@ -69,34 +69,142 @@ the Reports section). Logging does not depend on it: hits are logged for every v
   made on (its `Host` header, also when `Director.alternate_base_url` is set) is skipped (internal
   broken links belong in a site-internal link checker). The host is compared without its port.
 * A request without a referrer is logged with referrer `unknown`.
-* Each link + referrer combination is one row; repeat hits increase its count.
+* The link is stored without a leading slash (`about-us`, not `/about-us`).
+* Each link + referrer combination is one row; repeat hits increase its count. Rows are matched
+  case-insensitively, through an indexed hash column (`LinkHash`), so logging a hit costs one
+  indexed lookup however large the table grows.
+* Each row gets a **category** (see below). Hits in an ignored category (by default: scanners and
+  device probes) are not logged at all; that check runs before any database query.
 * Links and referrers longer than 2048 characters are truncated to fit the column.
 * Also logs when the site has a published 404 `ErrorPage` (silverstripe/errorpage).
 
 **Search queries** (`SearchQueryLogger`, applied to `SiteTree` when silverstripe/cms is installed):
 
-* Logged from the request parameter configured below, on any front-end page.
+* Logged from the request parameter(s) configured below, on any front-end page.
 * Queries are trimmed, lower-cased and truncated to 255 characters; each distinct query is one row
   with a hit count. Empty values and array values (`?Search[]=...`) are ignored.
+* Noise is not logged (see below): single characters, strings that are mostly not letters
+  (`2026`, `x1y2z3`), injection probes (`65'123`, `1 and 1=1`, `<script>`) and file names.
 
 ### Configuration
 
 | Option | Default | Effect |
 |--------|---------|--------|
-| `SearchLog.search_query_param` | `'Search'` | Name of the GET parameter whose value is logged as a search query |
+| `FourOhFourLog.category_patterns` | see below | Regex patterns per category, checked in order |
+| `FourOhFourLog.ignore_categories` | `scanner: true`, `probe: true` | Categories whose hits are not logged |
+| `FourOhFourLog.ignore_patterns` | none | Extra regexes whose hits are not logged, whatever their category |
+| `FourOhFourReport.link_display_length` | `120` | Characters of a link or referrer shown in the report grid |
+| `SearchLog.search_query_param` | `'Search'` | GET parameter whose value is logged, or a list of them |
+| `SearchLog.ignore_noise` | `true` | Drop noise queries before any database query |
+| `SearchLog.min_query_length` | `2` | Shorter queries are noise |
+| `SearchLog.min_letter_ratio` | `0.5` | Queries with a smaller share of letters and spaces are noise; `0` switches this off |
+| `SearchLog.noise_patterns` | `sql`, `quote`, `markup`, `filename` | Regexes that mark a query as noise |
+
+#### 404 categories
+
+Every 404 link is put in the first category with a matching pattern; anything else is a `page`.
+The patterns are matched against the link **without its leading slash, URL-decoded, query string
+included** (eg `wp-login.php?action=register`), and are full PCRE patterns with delimiters.
+
+| Category | What it catches (defaults) | Logged by default |
+|----------|----------------------------|-------------------|
+| `probe` | Browsers and devices asking on their own initiative: `.well-known/*` (passkey-endpoints, traffic-advice, change-password, ...), `apple-touch-icon*`, `favicon*`, `robots.txt`, `manifest.json`, `sitemap*.xml`, `autodiscover/` | no |
+| `scanner` | Vulnerability scanners: `*.php` and other script extensions, dotfiles (`.env`, `.git/`), WordPress and Joomla paths, backup and key files (`*.sql`, `*.zip`, `*.pem` outside `assets/`), `*.json` and other credential guesses, admin tools (`phpmyadmin`, `actuator`), `vendor/`, path traversal, `@fs/` and injection strings | no |
+| `asset` | A missing file: anything under `assets/` or `_resources/`, or a file extension (images, documents, media, css/js, fonts) | yes |
+| `page` | Everything else | yes |
+
+Probes are checked first (so `manifest.json` is a probe, not a credential guess), then scanners (so
+`assets/shell.php` is a scanner, not a missing asset), then assets. The category is stored on the
+row (`FourOhFourLog.Category`) and refreshed on every hit.
+
+Patterns are keyed by name, so a project can switch one off, add its own, or add a category:
+
+```yaml
+FourOhFourLog:
+  ignore_categories:
+    # Log device probes after all
+    probe: false
+    # Ignore the project's own category (below) as well
+    legacy: true
+  category_patterns:
+    scanner:
+      # This site serves JSON at the root: do not treat *.json as a credential guess
+      json: null
+    # A category of its own
+    legacy:
+      old_site: '~^old-site/~'
+  # Or drop hits without giving them a category
+  ignore_patterns:
+    old_forum: '~^forum/~'
+```
+
+YAML merges these maps with the defaults, so setting a key to `null` (or `''`) is the way to
+remove a default; leaving it out of your YAML changes nothing. On a site behind web-server rules
+that already block the common scanner paths, what still reaches PHP is mostly `*.php` probes,
+`*.json`/`*.zip` credential and backup guesses, `@fs/...` and `?path=../` traversal attempts, and
+the device probes above; all are covered by the defaults.
+
+#### Search parameter and noise
 
 ```yaml
 SearchLog:
-  search_query_param: 'q'
+  # One parameter, or a list: the first one that holds a value is logged (one query per request)
+  search_query_param:
+    - 'Search'
+    - 's'
+  min_query_length: 3
+  noise_patterns:
+    # Allow searches for file names
+    filename: null
 ```
+
+A single string (`search_query_param: 'q'`) works as before. A list replaces the default
+`'Search'`, so include it in the list if that parameter should still be logged.
+
+### Upgrading from 3.0
+
+Run a database build. It adds `FourOhFourLog.LinkHash` (with a unique index) and
+`FourOhFourLog.Category`, and an index on `SearchLog.Query`. It is safe on a table that already
+holds duplicate rows: existing rows get `NULL` in `LinkHash`, and a unique index allows any number
+of `NULL`s.
+
+Then run the merge task once:
+
+```
+# Silverstripe 6
+vendor/bin/sake tasks:FourOhFourLogMergeTask --dry-run
+vendor/bin/sake tasks:FourOhFourLogMergeTask
+# Silverstripe 5
+vendor/bin/sake dev/tasks/FourOhFourLogMergeTask dry-run=1
+vendor/bin/sake dev/tasks/FourOhFourLogMergeTask
+```
+
+It fills in `LinkHash` and `Category` on the existing rows and merges rows that are one link +
+referrer, chiefly the `/path` and `path` pairs left by older versions storing the link with a
+leading slash: the merged row keeps the summed count, the earliest `Created` (first seen) and the
+latest `LastEdited` (most recent hit). It works in chunks (`--chunk-size=N` / `chunk-size=N`,
+default 1000), only touches rows without a hash, and can be stopped and run again; a second run
+finds nothing to do. Rows in a category that is now ignored are categorised, not deleted. On a
+55,000-row table it took about 12 seconds.
+
+Until the task has run, logging keeps working: a hit that misses the index falls back to the old
+lookup for unhashed rows and gives the row it finds its hash. That fallback (an unindexed query)
+only runs while unhashed rows exist, so run the task to get the full speed-up.
 
 ### PHP API
 
 Both loggers call a static method you can also call yourself, eg from a custom controller:
 
 * `FourOhFourLog::logHit(string $link, string $referrer)` - create the row for this link and
-  referrer, or increase its count.
+  referrer, or increase its count. Returns the row, or `null` when the hit was ignored.
 * `SearchLog::logHit(string $query)` - create the row for this query, or increase its count.
+  Returns the row, or `null` when the query was noise.
+
+And the checks they use:
+
+* `FourOhFourLog::categorise(string $link): string` - the category of a link.
+* `FourOhFourLog::isIgnored(string $link): bool` - whether a hit on it would be dropped.
+* `SearchLog::isNoise(string $query): bool` - whether a query would be dropped.
 
 The classes are in the global namespace.
 

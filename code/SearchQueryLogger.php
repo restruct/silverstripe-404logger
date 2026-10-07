@@ -26,15 +26,27 @@ class SearchQueryLogger
             return;
         }
 
-        $searchQueryParam = Config::inst()->get(SearchLog::class, 'search_query_param');
-        $searchQuery = $controller->getRequest()->getVar($searchQueryParam);
+//        $searchQueryParam = Config::inst()->get(SearchLog::class, 'search_query_param');
+//        $searchQuery = $controller->getRequest()->getVar($searchQueryParam);
+        # One parameter name (a string, as before 3.1) or a list of them; the first one holding a
+        # value is logged, so a request is never counted twice.
+        $searchQueryParams = (array) Config::inst()->get(SearchLog::class, 'search_query_param');
+        $request = $controller->getRequest();
 
-        # Only a scalar string is a search query. `?Search[]=x` arrives as an array, which would
-        # otherwise reach strtolower() in SearchLog::logHit() and fatal the page for any visitor.
-        if (!is_string($searchQuery) || trim($searchQuery) === '') {
+        foreach ($searchQueryParams as $searchQueryParam) {
+            if (!is_string($searchQueryParam) || $searchQueryParam === '') {
+                continue;
+            }
+            $searchQuery = $request->getVar($searchQueryParam);
+
+            # Only a scalar string is a search query. `?Search[]=x` arrives as an array, which would
+            # otherwise reach strtolower() in SearchLog::logHit() and fatal the page for any visitor.
+            if (!is_string($searchQuery) || trim($searchQuery) === '') {
+                continue;
+            }
+
+            SearchLog::logHit($searchQuery);
             return;
         }
-
-        SearchLog::logHit($searchQuery);
     }
 }
