@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.1.0 (unreleased)
+## 3.1.0 (2026-10-07)
 
 Faster logging on large tables, and much less noise. Backward compatible: run a database build,
 then `FourOhFourLogMergeTask` once (see README, "Upgrading from 3.0").
