@@ -54,7 +54,7 @@ error: in practice every page, the CMS included, not only 404s.
 - The search report's overview count is one `COUNT` query instead of building the report.
 - **Concurrent hits on the same 404 row were lost:** each request wrote back the count it had read
   plus one. The count is raised in SQL now (`"Count" = "Count" + 1`), on the repeat-hit path and on
-  the lost-insert-race path.
+  the lost-insert-race path. The same for repeat searches in `SearchLog`.
 
 ### Changed
 

@@ -1,6 +1,7 @@
 <?php
 
 use SilverStripe\ORM\DataObject;
+use SilverStripe\ORM\Queries\SQLUpdate;
 use SilverStripe\Security\Permission;
 
 /**
@@ -150,8 +151,21 @@ class SearchLog
                     'Query' => $query
                     ))->first();
         if ($existing) {
-            $existing->Count = $existing->Count+1;
-            $existing->write();
+//            $existing->Count = $existing->Count+1;
+//            $existing->write();
+            # Count raised in SQL, like FourOhFourLog::countHit(): setting Count = the value read
+            # + 1 lost hits under concurrency, as requests that read the same value all wrote the
+            # same result back. The forced ORM write stamps LastEdited (the last search).
+            $existing->write(false, false, true);
+            $table = static::getSchema()->tableName(static::class);
+            SQLUpdate::create(
+                "\"$table\"",
+                array('"Count"' => array('"Count" + ?' => array(1))),
+                array('"ID"' => (int) $existing->ID)
+            )->execute();
+            # No re-read on this hot path: the stored Count is right through the increment; the
+            # in-memory one is the value read plus this hit. Set after the write, never written.
+            $existing->Count = (int) $existing->Count + 1;
             static::countMonth($existing);
             return $existing;
         } else {
