@@ -120,7 +120,8 @@ and noise are never counted. Switch it off with `count_per_month: false` on `Fou
 A list editors can change, on `SiteConfig` (only when `silverstripe/siteconfig` is installed):
 one link per line, without the domain, compared case-insensitively, query string included. A line
 ending in `*` ignores every link that starts with it (`downloads/old/*`); lines starting with `#`
-are comments. The report's *Ignore selected links* action adds lines here. Developers' regular
+are comments. The report's *Ignore selected links* action adds lines here; it skips a logged link
+that itself ends in `*`, which would otherwise become such a prefix line. Developers' regular
 expressions stay in `FourOhFourLog.ignore_patterns` (YAML).
 
 ### Purging old rows

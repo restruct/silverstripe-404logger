@@ -197,14 +197,34 @@ class FourOhFourBulkActions implements GridField_HTMLProvider, GridField_ColumnP
             );
         }
 
-        $added = FourOhFourIgnoreListExtension::addLinks($links);
+        # A link ending in '*' would become a prefix entry on the list: skipped, and so not
+        # marked handled either, since it is not ignored.
+        $skipped = 0;
+        foreach ($links as $i => $link) {
+            if (!FourOhFourIgnoreListExtension::canAddLink($link)) {
+                unset($links[$i]);
+                $skipped++;
+            }
+        }
+        $links = array_values($links);
+
+        $added = $links ? FourOhFourIgnoreListExtension::addLinks($links) : 0;
         FourOhFourLog::markHandled($links, 'ignored');
 
-        return _t(
+        $message = _t(
             'FourOhFourLogger.IgnoredLinks',
             'Ignored {count} link(s); {added} added to the ignore list under Settings.',
             array('count' => count($links), 'added' => $added)
         );
+        if ($skipped) {
+            $message .= ' ' . _t(
+                'FourOhFourLogger.IgnoreSkippedStar',
+                '{skipped} skipped: a link ending in * would ignore every link starting with it.',
+                array('skipped' => $skipped)
+            );
+        }
+
+        return $message;
     }
 
     /**

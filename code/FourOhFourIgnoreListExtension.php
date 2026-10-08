@@ -88,7 +88,22 @@ class FourOhFourIgnoreListExtension extends Extension
     }
 
     /**
-     * Add links to the list (skipping ones already on it) and save the site config.
+     * Whether a logged link can go on the list as itself. A link ending in '*' cannot: on the
+     * list a trailing '*' means "every link starting with this", so it would ignore far more
+     * than the one link. There is no escape syntax; such a link can only be ignored by a
+     * pattern (FourOhFourLog.ignore_patterns) or a deliberate prefix entry.
+     *
+     * @param string $link
+     * @return bool
+     */
+    public static function canAddLink($link)
+    {
+        return substr(rtrim((string) $link), -1) !== '*';
+    }
+
+    /**
+     * Add links to the list (skipping ones already on it, and links ending in '*', see
+     * canAddLink()) and save the site config.
      *
      * @param string[] $links
      * @return int Number of links added; 0 also when the list is not available
@@ -105,7 +120,7 @@ class FourOhFourIgnoreListExtension extends Extension
         foreach ($links as $link) {
             $link = FourOhFourLog::normaliseLink(trim((string) $link));
             $key = mb_strtolower($link);
-            if ($key === '' || in_array($key, $existing, true) || isset($added[$key])) {
+            if ($key === '' || !static::canAddLink($link) || in_array($key, $existing, true) || isset($added[$key])) {
                 continue;
             }
             $added[$key] = $link;

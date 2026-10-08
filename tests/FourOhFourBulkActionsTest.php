@@ -137,6 +137,29 @@ class FourOhFourBulkActionsTest extends SapphireTest
         $this->assertSame('ignored', $this->rawRow((int) $log->ID)['HandledAs']);
     }
 
+    /**
+     * A trailing '*' on the ignore list means "every link starting with this", so a logged link
+     * that happens to end in '*' must not be added verbatim: it would silently ignore far more
+     * than the one link. It is skipped, said so, and not marked handled.
+     */
+    public function testALinkEndingInAStarIsNotAddedAsAPrefix()
+    {
+        $star = FourOhFourLog::logHit('old/page*', 'unknown');
+        $plain = FourOhFourLog::logHit('old/plain', 'unknown');
+        $this->assertNotNull($star);
+        $this->logInWithPermission('ADMIN');
+        $bulk = FourOhFourBulkActions::create();
+
+        $message = $bulk->ignore($bulk->selectedLinks($this->ids([$star, $plain])));
+
+        $this->assertSame(['old/plain'], FourOhFourIgnoreListExtension::entries());
+        $this->assertFalse(FourOhFourLog::matchesIgnoreList('old/page-two'), 'no prefix entry was created');
+        $this->assertStringContainsString('1 skipped', $message);
+        $this->assertNull($this->rawRow((int) $star->ID)['HandledAs'], 'not on the list, so not handled');
+        $this->assertSame('ignored', $this->rawRow((int) $plain->ID)['HandledAs']);
+        $this->assertSame(0, FourOhFourIgnoreListExtension::addLinks(['other/*']), 'addLinks() itself refuses it');
+    }
+
     public function testAHandledLinkThatIsHitAgainShowsAgain()
     {
         $log = FourOhFourLog::logHit('old/redirected', 'unknown');
