@@ -51,8 +51,16 @@ class ReportsTest extends SapphireTest
         $report = FourOhFourReport::create();
 
         $this->assertSame('(External) broken links report', $report->title());
-        $this->assertSame(FourOhFourLog::class, $report->sourceRecords([], null, null)->dataClass());
-        $this->assertSame(['Count', 'Link', 'Referrer', 'LastEdited'], array_keys($report->columns()));
+//        $this->assertSame(FourOhFourLog::class, $report->sourceRecords([], null, null)->dataClass());
+//        $this->assertSame(['Count', 'Link', 'Referrer', 'LastEdited'], array_keys($report->columns()));
+        # 3.2: the default view is one row per link (an ArrayList of aggregated rows, see
+        # FourOhFourReportAggregationTest); the per-referrer view is still the FourOhFourLog list.
+        $this->assertSame(FourOhFourLog::class, $report->sourceRecords(['View' => 'referrer'], null, null)->dataClass());
+        $this->assertSame(['missing/report-page'], $report->sourceRecords([], null, null)->column('Link'));
+        $this->assertSame(
+            ['Count', 'RecentCount', 'Link', 'Referrers', 'Referrer', 'Category', 'Created', 'LastEdited'],
+            array_keys($report->columns())
+        );
 
         $this->logInWithPermission('ADMIN');
         $field = $report->getReportField();
@@ -139,8 +147,12 @@ class ReportsTest extends SapphireTest
         $report = SearchQueryReport::create();
 
         $this->assertSame('Search words report', $report->title());
-        $this->assertSame(SearchLog::class, $report->sourceRecords([], null, null)->dataClass());
-        $this->assertSame(['Count', 'Query', 'LastEdited'], array_keys($report->columns()));
+//        $this->assertSame(SearchLog::class, $report->sourceRecords([], null, null)->dataClass());
+//        $this->assertSame(['Count', 'Query', 'LastEdited'], array_keys($report->columns()));
+        # 3.2: a search terms report, one aggregated row per SearchLog row (an ArrayList, see
+        # SearchTermsReportTest), with the original three columns among the new ones.
+        $this->assertSame(['report query'], $report->sourceRecords([], null, null)->column('Query'));
+        $this->assertSame([], array_diff(['Count', 'Query', 'LastEdited'], array_keys($report->columns())));
 
         $this->logInWithPermission('ADMIN');
         $html = $this->render($report->getReportField());
