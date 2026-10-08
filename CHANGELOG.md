@@ -17,7 +17,10 @@ run a database build (see README, "Upgrading from 3.1"); no task to run.
 - **Broken links report, one row per link:** hits summed over all referrers, number of referrers,
   latest referrer, category, first and most recent hit, hits in period (from the monthly counts).
   Filters: last hit in the last 30/90/365 days (`FourOhFourReport.recency_days`), category, status.
-  The per-referrer list is still there ("One row per link and referrer").
+  The per-referrer list is still there ("One row per link and referrer"). The reports overview
+  counts the links in chunks without building the list, up to core's `limit_count_in_overview`
+  ("10000+"), so a large log table does not exhaust memory on the Reports listing
+  (`FourOhFourReport.count_chunk_size`, default 2000 rows per query).
 - **Bulk actions** on the broken links report: "Ignore selected links" (adds them to a new
   CMS-editable ignore list under Settings > 404 log, on `SiteConfig`, when silverstripe/siteconfig
   is installed) and "Redirect selected links" (creates redirects in silverstripe/redirectedurls,

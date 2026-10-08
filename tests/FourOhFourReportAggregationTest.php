@@ -157,6 +157,34 @@ class FourOhFourReportAggregationTest extends SapphireTest
     }
 
     /**
+     * The reports overview counts up to limit_count_in_overview in bounded chunks, without
+     * building the grouped list (FourOhFourReportCountStub throws if it is built), and shows
+     * "N+" when there are more. The filters still apply to the count.
+     */
+    public function testOverviewCountIsBoundedAndDoesNotBuildTheGroups()
+    {
+        $this->logFixture();
+        DBDatetime::set_mock_now('2026-08-29 10:00:00');
+        FourOhFourLog::logHit('gone/long-ago', 'unknown');
+        DBDatetime::set_mock_now('2026-10-08 12:00:00');
+        for ($i = 1; $i <= 5; $i++) {
+            FourOhFourLog::logHit("bulk/link-$i", 'unknown');
+        }
+        # Tiny chunks, so the count runs over several queries and stops inside one.
+        FourOhFourReportCountStub::config()->set('count_chunk_size', 2);
+        $report = FourOhFourReportCountStub::create();
+
+        $this->assertSame(8, (int) $report->getCount([], 100), '8 distinct links, case-insensitive');
+        $this->assertSame(3, (int) $report->getCount([], 3));
+        $this->assertSame(1, (int) $report->getCount(['Category' => 'asset'], 100));
+        $this->assertSame(7, (int) $report->getCount(['Recency' => 30], 100), 'the link last hit 40 days ago is out');
+        $this->assertSame(8, (int) $report->getCount([]), 'no limit: still counted in SQL');
+
+        FourOhFourReportCountStub::config()->set('limit_count_in_overview', 3);
+        $this->assertSame('3+', $report->getCountForOverview());
+    }
+
+    /**
      * The grid shows links shortened; the CSV must carry the full link and referrer, and follow
      * the filters the editor set (posted along as filters[...]).
      */
