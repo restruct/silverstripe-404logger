@@ -17,6 +17,8 @@ Requirements
 * Optional: `silverstripe/reports` for the two CMS reports, and `silverstripe/cms` for search
   query logging. Both come with `silverstripe/recipe-cms`. Without them the 404 log is still
   written, but there is no report to view it in.
+* Optional: `silverstripe/siteconfig` (also in recipe-cms) for the CMS-editable ignore list, and
+  `silverstripe/redirectedurls` for the report's "redirect" action.
 
 Installation
 ------------
@@ -55,6 +57,108 @@ The report shows long URLs shortened to 120 characters (the full URL appears on 
 `FourOhFourReport.link_display_length` in YAML config to change the limit.
 
 Logged search queries are in the same section as 'Search words report'.
+
+### The broken links report
+
+* **One row per link** (since 3.2): the hits of all its referrers summed, the number of referrers,
+  the referrer of the most recent hit, the category, the first and the most recent hit, and
+  **Hits in period** (hits in the window of the "Last hit" filter, or the last 365 days, from the
+  monthly counts below). Choose "One row per link and referrer" under *Show* for the list as it was
+  before 3.2.
+* **Filters:** *Last hit* (in the last 30, 90 or 365 days; `FourOhFourReport.recency_days`),
+  *Category* (`page`, `asset`, `scanner`, `probe` or a category of your own) and *Status* (not
+  handled, handled, all). The recency filter applies to the link's most recent hit; the totals stay
+  lifetime totals.
+* **Bulk actions:** tick rows, then
+  * **Ignore selected links** adds the links to the ignore list under *Settings > 404 log* (see
+    below), so further hits are not logged. Needs `silverstripe/siteconfig`.
+  * **Redirect selected links** creates a redirect from each link to the URL typed next to the
+    button (a path such as `/new-page`, or a full URL), in
+    [silverstripe/redirectedurls](https://github.com/silverstripe/silverstripe-redirectedurls). Only
+    shown when that module is installed; it needs that module's "Create a redirect" permission. A
+    link that already has a redirect, or whose path is longer than 255 characters, is skipped.
+
+  Both mark the link's rows **handled**, which hides them from the default view (*Status*: not
+  handled). A handled link that is hit again is shown again: the redirect did not work, or the
+  link was taken off the ignore list.
+* **Export to CSV** exports the list as filtered, with the full URLs and referrers.
+
+### The search words report
+
+Since 3.2 a search terms report. Per term:
+
+| Column | Meaning |
+|--------|---------|
+| Amount of hits | Lifetime hits |
+| Hits per active year | Hits divided by the years between the first and the most recent search, at least one year, so old and new terms compare fairly |
+| Hits this year | From the monthly counts, so only hits since the upgrade to 3.2 |
+| Last searched | This year, last year, 2-3 years ago, or older (calendar years) |
+| Trend | `new`: first searched last year or this year, and searched this year. `faded`: searched before, but not this year |
+| Noise | `yes` when the term looks like noise by the rules of the noise filter below, also for rows logged before that filter existed or with it switched off |
+
+Filters: *Last searched*, *Trend* (new, faded) and *Noise* (hidden by default, shown too, or only
+noise). Every column sorts; *Export to CSV* exports the filtered list. The years are calendar years,
+so early in January most terms are "faded" until they are searched again.
+
+### Monthly counts
+
+From 3.2 every logged hit is also counted per calendar month (tables `FourOhFourLogMonth` and
+`SearchLogMonth`: log row, `YearMonth` as `YYYYMM`, count). The reports use them for "hits in
+period" and "hits this year". **Monthly data starts at the upgrade to 3.2**: older hits exist only
+in the lifetime `Count`, with no record of when they happened, so there is nothing to backfill.
+
+The cost is one indexed `UPDATE` per logged hit, plus one `INSERT` for a row's first hit in a
+month (measured on MySQL: a repeat 404 hit goes from 3 to 4 SQL statements, a first hit from 5 to
+7; a repeat search from 3 to 4). Ignored hits
+and noise are never counted. Switch it off with `count_per_month: false` on `FourOhFourLog` and/or
+`SearchLog`.
+
+### Ignore list (Settings > 404 log)
+
+A list editors can change, on `SiteConfig` (only when `silverstripe/siteconfig` is installed):
+one link per line, without the domain, compared case-insensitively, query string included. A line
+ending in `*` ignores every link that starts with it (`downloads/old/*`); lines starting with `#`
+are comments. The report's *Ignore selected links* action adds lines here. Developers' regular
+expressions stay in `FourOhFourLog.ignore_patterns` (YAML).
+
+### Purging old rows
+
+`LogPurgeTask` deletes rows; each criterion is opt-in, and without one the task deletes nothing.
+
+```
+# Silverstripe 6
+vendor/bin/sake tasks:LogPurgeTask --older-than=24 --ignored --noise --dry-run
+# Silverstripe 5
+vendor/bin/sake dev/tasks/LogPurgeTask older-than=24 ignored=1 noise=1 dry-run=1
+```
+
+* `older-than=N`: 404 and search rows whose most recent hit is more than N months ago, and monthly
+  counts of months before that (also of the rows that are kept).
+* `ignored`: 404 rows that the current rules would no longer log (ignored categories,
+  `ignore_patterns`, the ignore list), eg after ignoring links from the report, or rows from before
+  3.1 that are scanner noise.
+* `noise`: search rows that look like noise.
+* `dry-run`: only report the counts. A deleted row takes its monthly counts with it.
+
+It works in chunks (`--chunk-size=N` / `chunk-size=N`, default 1000) and can be stopped and run
+again. Suitable for a monthly cron job.
+
+### Common device probes
+
+Even with no scanner traffic, most 404s on a typical site are requests that browsers, phones and
+crawlers make **on their own**, not broken links:
+
+* `/.well-known/passkey-endpoints` (password managers and browsers looking for passkey support),
+  `/.well-known/change-password`, `/.well-known/traffic-advice` (Chrome's prefetch proxy),
+  `/.well-known/assetlinks.json`, `/.well-known/apple-app-site-association`;
+* `apple-touch-icon.png`, `apple-touch-icon-precomposed.png` and sized variants
+  (`apple-touch-icon-180x180.png`), requested by iOS and many other clients whether or not the page
+  links one, and `favicon.ico`.
+
+They are the `probe` category and not logged by default. To stop them 404ing at all, serve the
+files (an `apple-touch-icon.png` in the web root, a `/.well-known/` route), or answer them in the
+web server; if your site does provide one of them, take its pattern out of `probe` so a real
+failure shows.
 
 Viewing and managing the logged records requires the `CMS_ACCESS_ReportAdmin` permission (access to
 the Reports section). Logging does not depend on it: hits are logged for every visitor.
@@ -96,7 +200,11 @@ the Reports section). Logging does not depend on it: hits are logged for every v
 | `FourOhFourLog.ignore_categories` | `scanner: true`, `probe: true` | Categories whose hits are not logged |
 | `FourOhFourLog.ignore_patterns` | none | Extra regexes whose hits are not logged, whatever their category or referrer |
 | `FourOhFourLog.ignore_only_without_referrer` | `true` | An ignored `scanner` hit is only dropped when it has no referrer |
+| `FourOhFourLog.count_per_month` | `true` | Count each logged hit per calendar month too (see "Monthly counts") |
 | `FourOhFourReport.link_display_length` | `120` | Characters of a link or referrer shown in the report grid |
+| `FourOhFourReport.recency_days` | `30`, `90`, `365` | Choices of the report's "Last hit" filter, in days |
+| `FourOhFourReport.default_period_days` | `365` | Window of "Hits in period" when no "Last hit" filter is set |
+| `SearchLog.count_per_month` | `true` | Count each logged search per calendar month too |
 | `SearchLog.search_query_param` | `'Search'` | GET parameter whose value is logged, or a list of them |
 | `SearchLog.ignore_noise` | `true` | Drop noise queries before any database query |
 | `SearchLog.min_query_length` | `2` | Shorter queries are noise |
@@ -174,6 +282,18 @@ SearchLog:
 A single string (`search_query_param: 'q'`) works as before. A list replaces the default
 `'Search'`, so include it in the list if that parameter should still be logged.
 
+### Upgrading from 3.1
+
+Run a database build. It adds the tables `FourOhFourLogMonth` and `SearchLogMonth`, the columns
+`FourOhFourLog.HandledAs` and `HandledAt`, and (with silverstripe/siteconfig)
+`SiteConfig.FourOhFourIgnoreList`. No task to run, and no data to migrate: the monthly counts start
+empty (see "Monthly counts").
+
+What looks different: the broken links report shows one row per link (choose "One row per link and
+referrer" for the old list), and hides rows marked handled. Code that subclasses `FourOhFourReport`
+or `SearchQueryReport` should note that `sourceRecords()` now returns an `ArrayList` of
+aggregated rows (the per-referrer view still returns the `FourOhFourLog` list).
+
 ### Upgrading from 3.0
 
 Run a database build. It adds `FourOhFourLog.LinkHash` (with a unique index) and
@@ -243,6 +363,12 @@ And the checks they use:
 * `FourOhFourLog::categorise(string $link): string` - the category of a link.
 * `FourOhFourLog::isIgnored(string $link): bool` - whether a hit on it would be dropped.
 * `SearchLog::isNoise(string $query): bool` - whether a query would be dropped.
+* `SearchLog::looksLikeNoise(string $query): bool` - the same rules, whatever `ignore_noise` says.
+* `SearchLog::termStats(...)` - the derived figures of the search terms report for one term.
+* `FourOhFourLog::matchesIgnoreList(string $link): bool` - whether a link is on the CMS ignore list.
+* `FourOhFourLog::markHandled(array $links, string $as): int` - mark the rows of these links handled.
+* `HitMonthCounter::totalsSince(string $monthClass, int $yearMonth): array` - hits per log row from
+  a month on.
 
 The classes are in the global namespace.
 

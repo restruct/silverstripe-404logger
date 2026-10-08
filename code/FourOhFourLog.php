@@ -1,6 +1,9 @@
 <?php
 
 use SilverStripe\ORM\DataObject;
+use SilverStripe\ORM\DB;
+use SilverStripe\ORM\FieldType\DBDatetime;
+use SilverStripe\ORM\Queries\SQLUpdate;
 use SilverStripe\Security\Permission;
 
 /**
@@ -29,6 +32,19 @@ class FourOhFourLog
         # One of the $category_patterns keys or 'page', set on write so later reports can filter
         # on it without re-running the patterns over the whole table.
         'Category' => 'Varchar(32)',
+        # Set by the report's bulk actions ('ignored', 'redirected'): the link was dealt with, so
+        # the report hides it by default. Cleared again by the next hit on the row, because a
+        # handled link that still 404s was not handled after all.
+        'HandledAs' => 'Varchar(32)',
+        'HandledAt' => 'Datetime',
+    );
+
+    private static $has_many = array(
+        'Months' => FourOhFourLogMonth::class,
+    );
+
+    private static $cascade_deletes = array(
+        'Months',
     );
 
     private static $indexes = array(
@@ -147,6 +163,16 @@ class FourOhFourLog
      */
     private static $ignore_only_without_referrer = true;
 
+    /**
+     * Whether logHit() also counts each hit per calendar month (FourOhFourLogMonth), which the
+     * report uses for "hits in period". Costs one indexed UPDATE per logged hit (plus an INSERT
+     * on a row's first hit in a month). Ignored hits are never counted.
+     *
+     * @config
+     * @var bool
+     */
+    private static $count_per_month = true;
+
     private static $summary_fields = array(
         'Referrer' => 'Referrer',
         'Link' => 'Incoming link',
@@ -214,7 +240,13 @@ class FourOhFourLog
             $existing->Count = $existing->Count+1;
             # Re-set on every hit, so a change to the category config shows on the next hit.
             $existing->Category = $category;
+            # A link marked handled that 404s again was not handled after all: show it again.
+            if ($existing->HandledAs) {
+                $existing->HandledAs = null;
+                $existing->HandledAt = null;
+            }
             $existing->write();
+            static::countMonth($existing);
             return $existing;
         }
 
@@ -237,10 +269,58 @@ class FourOhFourLog
             }
             $existing->Count = $existing->Count+1;
             $existing->write();
+            static::countMonth($existing);
             return $existing;
         }
 
+        static::countMonth($log);
         return $log;
+    }
+
+    /**
+     * Count a hit on this row in the current month, when count_per_month is on. Called after
+     * the row's own write, on every path through logHit() (including the lost insert race), so
+     * the monthly counts add up to the hits logged since the upgrade.
+     *
+     * @param FourOhFourLog $row
+     * @return void
+     */
+    protected static function countMonth($row)
+    {
+        if (static::config()->get('count_per_month') && $row && $row->ID) {
+            HitMonthCounter::increment(FourOhFourLogMonth::class, (int) $row->ID);
+        }
+    }
+
+    /**
+     * Mark every row of these links handled (eg after the report's "ignore" or "redirect"
+     * action), so the report hides them by default. Plain SQL, so LastEdited ("most recent hit")
+     * is left alone. Links match case-insensitively, like the rows' hash.
+     *
+     * @param string[] $links
+     * @param string $as 'ignored', 'redirected' or a project's own label
+     * @return int Rows marked
+     */
+    public static function markHandled(array $links, $as)
+    {
+        $links = array_values(array_unique(array_filter(array_map('strval', $links), 'strlen')));
+        if (!$links) {
+            return 0;
+        }
+
+        $table = static::getSchema()->tableName(static::class);
+        $lower = array_map('mb_strtolower', $links);
+        $placeholders = implode(', ', array_fill(0, count($lower), '?'));
+        SQLUpdate::create(
+            "\"$table\"",
+            array(
+                '"HandledAs"' => static::fitToField('HandledAs', (string) $as),
+                '"HandledAt"' => DBDatetime::now()->Rfc2822(),
+            ),
+            array("LOWER(\"Link\") IN ($placeholders)" => $lower)
+        )->execute();
+
+        return (int) DB::affected_rows();
     }
 
     /**
@@ -322,7 +402,43 @@ class FourOhFourLog
             }
         }
 
-        return static::matchesAny(static::patternSubject($link), (array) static::config()->get('ignore_patterns'));
+        if (static::matchesAny(static::patternSubject($link), (array) static::config()->get('ignore_patterns'))) {
+            return true;
+        }
+
+        # Last, because it is the only check that may read the database (SiteConfig, usually
+        # already loaded for the error page): the links editors ignored from the report.
+        return static::matchesIgnoreList($link);
+    }
+
+    /**
+     * Whether a link is on the CMS-editable ignore list (SiteConfig, see
+     * FourOhFourIgnoreListExtension): an exact link, or a prefix when the entry ends in '*'.
+     * Compared case-insensitively, without leading slash, query string included.
+     *
+     * @param string $link
+     * @return bool
+     */
+    public static function matchesIgnoreList($link)
+    {
+        $entries = FourOhFourIgnoreListExtension::entries();
+        if (!$entries) {
+            return false;
+        }
+
+        $link = mb_strtolower(static::normaliseLink((string) $link));
+        foreach ($entries as $entry) {
+            if (substr($entry, -1) === '*') {
+                $prefix = substr($entry, 0, -1);
+                if ($prefix !== '' && strncmp($link, $prefix, strlen($prefix)) === 0) {
+                    return true;
+                }
+            } elseif ($link === $entry) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

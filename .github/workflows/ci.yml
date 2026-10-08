@@ -75,6 +75,8 @@ jobs:
       - name: Build a host project
         # The module cannot be tested on its own: it needs a booted Silverstripe app.
         # recipe-cms brings in silverstripe/cms, reports and errorpage, which the suite exercises.
+        # silverstripe/redirectedurls (suggested, not required) is added so the report's
+        # "redirect" bulk action is tested too; its tests skip without it.
         # The module is required through a PATH repository pointing at the checkout, and
         # symlinked rather than mirrored ON PURPOSE - `/tests` is `export-ignore` in
         # .gitattributes, so a dist or mirrored install contains no tests at all.
@@ -87,7 +89,8 @@ jobs:
             "require": {
               "silverstripe/recipe-cms": "${{ matrix.recipe }}",
               "silverstripe/recipe-testing": "${{ matrix.testing }}",
-              "restruct/silverstripe-404logger": "*"
+              "restruct/silverstripe-404logger": "*",
+              "silverstripe/redirectedurls": "*"
             },
             "repositories": [
               { "type": "path", "url": "../module", "options": { "symlink": true } }

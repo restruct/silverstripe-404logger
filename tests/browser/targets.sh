@@ -12,8 +12,11 @@ SS5_RECIPE="^5"
 SS5_PHP="8.3"
 SS5_PORT="8859"
 SS5_SRC_REF=""
+# The broken links report offers "redirect" only when silverstripe/redirectedurls is installed.
+SS5_EXTRA_REQUIRE="silverstripe/redirectedurls:^3"
 
 SS6_RECIPE="^6"
 SS6_PHP="8.3"
 SS6_PORT="8860"
 SS6_SRC_REF=""
+SS6_EXTRA_REQUIRE="silverstripe/redirectedurls:^4"
