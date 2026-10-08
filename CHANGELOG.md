@@ -41,7 +41,7 @@ run a database build (see README, "Upgrading from 3.1"); no task to run.
 
 - **The CSV export of the broken links report contained the shortened URL and referrer** (the
   grid's 120-character display text, since 3.0.1). It exports the full values now.
-- The reports' overview count no longer builds the whole report: one `COUNT` query.
+- The search report's overview count is one `COUNT` query instead of building the report.
 
 ### Changed
 
