@@ -6,6 +6,11 @@ Reports you can act on: the broken links report grouped by link with filters, bu
 full CSV export, a search terms report, monthly hit counts and a purge task. Backward compatible:
 run a database build (see README, "Upgrading from 3.1"); no task to run.
 
+**Run the database build as part of the deploy, before the site takes traffic.** With
+silverstripe/siteconfig installed, 3.2 adds a column to `SiteConfig` (`FourOhFourIgnoreList`), and
+until the build has created it every request that reads the site config fails with a database
+error: in practice every page, the CMS included, not only 404s.
+
 ### Added
 
 - **Monthly counts.** Every logged hit is also counted per calendar month (new tables
@@ -23,7 +28,8 @@ run a database build (see README, "Upgrading from 3.1"); no task to run.
   (`FourOhFourReport.count_chunk_size`, default 2000 rows per query).
 - **Bulk actions** on the broken links report: "Ignore selected links" (adds them to a new
   CMS-editable ignore list under Settings > 404 log, on `SiteConfig`, when silverstripe/siteconfig
-  is installed; needs permission to edit the site settings) and "Redirect selected links" (creates redirects in silverstripe/redirectedurls,
+  is installed; needs permission to edit the site settings; a logged link ending in `*` is
+  skipped, since the list reads a trailing `*` as a prefix) and "Redirect selected links" (creates redirects in silverstripe/redirectedurls,
   when installed; the target must be a site path starting with a single `/` or an `http(s)://`
   URL of at most 255 characters). Both mark the rows handled (new columns `HandledAs`, `HandledAt`); handled rows
   are hidden by default and come back on their next hit.

@@ -293,6 +293,10 @@ Run a database build. It adds the tables `FourOhFourLogMonth` and `SearchLogMont
 `SiteConfig.FourOhFourIgnoreList`. No task to run, and no data to migrate: the monthly counts start
 empty (see "Monthly counts").
 
+**Run it as part of the deploy, before the site takes traffic.** Until the build has added
+`SiteConfig.FourOhFourIgnoreList`, every request that reads the site config fails with a database
+error, which in practice is every page and the CMS, not only 404s.
+
 What looks different: the broken links report shows one row per link (choose "One row per link and
 referrer" for the old list), and hides rows marked handled. Code that subclasses `FourOhFourReport`
 or `SearchQueryReport` should note that `sourceRecords()` now returns an `ArrayList` of
