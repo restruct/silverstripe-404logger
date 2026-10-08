@@ -112,6 +112,31 @@ class FourOhFourBulkActionsTest extends SapphireTest
         $this->assertNull($this->rawRow((int) $log->ID)['HandledAs']);
     }
 
+    /**
+     * The ignore list lives on SiteConfig, so changing it needs the right to edit the site
+     * settings, not only report access. Without it the button is not offered either.
+     */
+    public function testIgnoreNeedsSiteConfigEditPermission()
+    {
+        $log = FourOhFourLog::logHit('old/report-only', 'unknown');
+        $this->logInWithPermission('CMS_ACCESS_ReportAdmin');
+
+        $message = FourOhFourBulkActions::create()->ignore(['old/report-only']);
+
+        $this->assertStringContainsString('settings', $message);
+        $this->assertSame([], FourOhFourIgnoreListExtension::entries(), 'SiteConfig is not written');
+        $this->assertNull($this->rawRow((int) $log->ID)['HandledAs']);
+        $field = FourOhFourReport::create()->getReportField();
+        Form::create(ReportAdmin::singleton(), 'EditForm', FieldList::create($field), FieldList::create());
+        $this->assertStringNotContainsString('Ignore selected links', (string) $field->forTemplate());
+
+        # With the settings right as well, it works.
+        $this->logInWithPermission(['CMS_ACCESS_ReportAdmin', 'EDIT_SITECONFIG']);
+        FourOhFourBulkActions::create()->ignore(['old/report-only']);
+        $this->assertSame(['old/report-only'], FourOhFourIgnoreListExtension::entries());
+        $this->assertSame('ignored', $this->rawRow((int) $log->ID)['HandledAs']);
+    }
+
     public function testAHandledLinkThatIsHitAgainShowsAgain()
     {
         $log = FourOhFourLog::logHit('old/redirected', 'unknown');

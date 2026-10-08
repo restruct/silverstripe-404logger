@@ -23,7 +23,7 @@ run a database build (see README, "Upgrading from 3.1"); no task to run.
   (`FourOhFourReport.count_chunk_size`, default 2000 rows per query).
 - **Bulk actions** on the broken links report: "Ignore selected links" (adds them to a new
   CMS-editable ignore list under Settings > 404 log, on `SiteConfig`, when silverstripe/siteconfig
-  is installed) and "Redirect selected links" (creates redirects in silverstripe/redirectedurls,
+  is installed; needs permission to edit the site settings) and "Redirect selected links" (creates redirects in silverstripe/redirectedurls,
   when installed). Both mark the rows handled (new columns `HandledAs`, `HandledAt`); handled rows
   are hidden by default and come back on their next hit.
 - **Search terms report:** per term hits per active year, hits this year, recency band (this year,

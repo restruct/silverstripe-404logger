@@ -71,7 +71,9 @@ Logged search queries are in the same section as 'Search words report'.
   lifetime totals.
 * **Bulk actions:** tick rows, then
   * **Ignore selected links** adds the links to the ignore list under *Settings > 404 log* (see
-    below), so further hits are not logged. Needs `silverstripe/siteconfig`.
+    below), so further hits are not logged. Needs `silverstripe/siteconfig`, and permission to
+    edit the site settings (`SiteConfig::canEdit()`, by default "Manage site configuration"), since
+    the list is saved there; without it the button is not shown.
   * **Redirect selected links** creates a redirect from each link to the URL typed next to the
     button (a path such as `/new-page`, or a full URL), in
     [silverstripe/redirectedurls](https://github.com/silverstripe/silverstripe-redirectedurls). Only

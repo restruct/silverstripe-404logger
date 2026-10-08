@@ -15,7 +15,8 @@ use SilverStripe\Security\Permission;
  * links of the ticked rows (every referrer row of each link):
  *
  * - "Ignore": adds the links to the CMS ignore list (FourOhFourIgnoreListExtension, on
- *   SiteConfig), so further hits are not logged. Only shown when that list is available.
+ *   SiteConfig), so further hits are not logged. Only shown when that list is available and
+ *   the member may edit the site settings it is saved on.
  * - "Redirect": creates a redirect from each link to the URL typed next to the button, in
  *   silverstripe/redirectedurls. Only shown when that module is installed.
  *
@@ -107,7 +108,8 @@ class FourOhFourBulkActions implements GridField_HTMLProvider, GridField_ColumnP
     public function getHTMLFragments($gridField)
     {
         $parts = array();
-        if (static::canIgnore()) {
+        # Offered only to who may change the list it writes to (the site settings).
+        if (static::canIgnore() && static::canEditIgnoreList()) {
             $parts[] = GridField_FormAction::create(
                 $gridField,
                 'FourOhFourIgnore',
@@ -185,6 +187,14 @@ class FourOhFourBulkActions implements GridField_HTMLProvider, GridField_ColumnP
         }
         if (!static::canManage()) {
             return _t('FourOhFourLogger.NotAllowed', 'You are not allowed to do this.');
+        }
+        # The list is saved on SiteConfig: report access alone must not be a way round the
+        # right to edit the site settings.
+        if (!static::canEditIgnoreList()) {
+            return _t(
+                'FourOhFourLogger.IgnoreNotAllowed',
+                'Changing the ignore list needs permission to edit the site settings.'
+            );
         }
 
         $added = FourOhFourIgnoreListExtension::addLinks($links);
@@ -282,6 +292,22 @@ class FourOhFourBulkActions implements GridField_HTMLProvider, GridField_ColumnP
     protected static function canManage()
     {
         return Permission::check('CMS_ACCESS_ReportAdmin');
+    }
+
+    /**
+     * Whether the current member may change the ignore list: it is a field of SiteConfig, so
+     * SiteConfig's own canEdit() (EDIT_SITECONFIG by default) decides.
+     *
+     * @return bool
+     */
+    protected static function canEditIgnoreList()
+    {
+        $class = FourOhFourIgnoreListExtension::SITECONFIG_CLASS;
+        if (!class_exists($class)) {
+            return false;
+        }
+
+        return (bool) $class::current_site_config()->canEdit();
     }
 
     /**
