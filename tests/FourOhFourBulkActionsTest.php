@@ -158,6 +158,10 @@ class FourOhFourBulkActionsTest extends SapphireTest
         $this->assertNull($this->rawRow((int) $star->ID)['HandledAs'], 'not on the list, so not handled');
         $this->assertSame('ignored', $this->rawRow((int) $plain->ID)['HandledAs']);
         $this->assertSame(0, FourOhFourIgnoreListExtension::addLinks(['other/*']), 'addLinks() itself refuses it');
+        # ignore() checks the links as stored, untrimmed; the list trims each line, so 'x* ' is a
+        # prefix entry there too.
+        $this->assertFalse(FourOhFourIgnoreListExtension::canAddLink('other/x* '));
+        $this->assertTrue(FourOhFourIgnoreListExtension::canAddLink('other/x*y'));
     }
 
     public function testAHandledLinkThatIsHitAgainShowsAgain()
@@ -267,6 +271,9 @@ class FourOhFourBulkActionsTest extends SapphireTest
             'evil.example/x',
             'ftp://files.example/x',
             'https://',
+            # A port without a host: the scheme check passes, parse_url() finds no host.
+            'https://:80',
+            'https://:80/x',
             "/news\r\nX-Injected: 1",
         ];
         foreach ($refused as $to) {
