@@ -25,7 +25,9 @@ error: in practice every page, the CMS included, not only 404s.
   The per-referrer list is still there ("One row per link and referrer"). The reports overview
   counts the links in chunks without building the list, up to core's `limit_count_in_overview`
   ("10000+"), so a large log table does not exhaust memory on the Reports listing
-  (`FourOhFourReport.count_chunk_size`, default 2000 rows per query).
+  (`FourOhFourReport.count_chunk_size`, default 2000 rows per query). Above
+  `FourOhFourReport.grouped_view_max_rows` filtered rows (default 20000) the report shows the
+  per-referrer rows instead, with a notice, since grouping holds every row in memory.
 - **Bulk actions** on the broken links report: "Ignore selected links" (adds them to a new
   CMS-editable ignore list under Settings > 404 log, on `SiteConfig`, when silverstripe/siteconfig
   is installed; needs permission to edit the site settings; a logged link ending in `*` is

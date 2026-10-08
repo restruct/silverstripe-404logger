@@ -4,6 +4,7 @@ use SilverStripe\Core\Convert;
 use SilverStripe\Forms\DropdownField;
 use SilverStripe\Forms\FieldList;
 use SilverStripe\Forms\GridField\GridFieldExportButton;
+use SilverStripe\Forms\LiteralField;
 use SilverStripe\ORM\DataObject;
 use SilverStripe\ORM\FieldType\DBDatetime;
 use SilverStripe\ORM\FieldType\DBField;
@@ -69,6 +70,20 @@ class FourOhFourReport extends Report
      */
     private static $count_chunk_size = 2000;
 
+    /**
+     * Above this many log rows (after the Status and Category filters), the "one row per link"
+     * view shows one row per link and referrer instead, with a notice saying why. Grouping holds
+     * every row's link and referrer in PHP: 60,000 rows of 2048-character links took ~440 MB,
+     * which fatals the report before an editor can switch views. 0 switches the limit off.
+     *
+     * @config
+     * @var int
+     */
+    private static $grouped_view_max_rows = 20000;
+
+    /** @var array<string, int> Memoised row counts per filter set (see groupedRowCount()) */
+    protected $groupedRowCounts = array();
+
     public function title()
     {
         return _t('FourOhFourLogger.FOUROHFOURREPORT', "(External) broken links report");
@@ -133,11 +148,84 @@ class FourOhFourReport extends Report
     public function sourceRecords($params = array(), $sort = null, $limit = null)
     {
         $params = $this->params($params);
-        if ($params['View'] === self::VIEW_REFERRER) {
+        # Too many rows to group in memory: the per-referrer rows instead (see getCMSFields()).
+        if ($params['View'] === self::VIEW_REFERRER || $this->groupedViewTooLarge($params)) {
             return $this->filteredRows($params);
         }
 
         return $this->linkRows($params);
+    }
+
+    /**
+     * Whether the grouped view was asked for but has more rows to group than
+     * grouped_view_max_rows. Counts the rows linkRows() would read: the Status and Category
+     * filters narrow them, the recency filter does not (it applies to a link's last hit, and the
+     * totals stay lifetime totals, so every row of the link is read).
+     *
+     * @param array $params From params()
+     * @return bool
+     */
+    public function groupedViewTooLarge(array $params)
+    {
+        $max = (int) static::config()->get('grouped_view_max_rows');
+        if ($params['View'] !== self::VIEW_LINK || $max <= 0) {
+            return false;
+        }
+
+        return $this->groupedRowCount($params) > $max;
+    }
+
+    /**
+     * Number of rows the grouped view would read: one COUNT query, memoised per filter set
+     * (columns(), sourceRecords() and getCMSFields() all ask on one page load).
+     *
+     * @param array $params From params()
+     * @return int
+     */
+    protected function groupedRowCount(array $params)
+    {
+        $where = $this->linkWhere($params);
+        $key = md5(serialize($where));
+        if (!isset($this->groupedRowCounts[$key])) {
+            $table = DataObject::getSchema()->tableName(FourOhFourLog::class);
+            $this->groupedRowCounts[$key] = (int) SQLSelect::create('*', "\"$table\"", $where)->count();
+        }
+
+        return $this->groupedRowCounts[$key];
+    }
+
+    /**
+     * The report's fields, with a notice above the grid when the grouped view fell back to the
+     * per-referrer rows.
+     *
+     * @return FieldList
+     */
+    public function getCMSFields()
+    {
+        $fields = parent::getCMSFields();
+        $params = $this->params();
+        if ($this->groupedViewTooLarge($params)) {
+            $notice = LiteralField::create('FourOhFourGroupedViewNotice', sprintf(
+                '<p class="alert alert-warning">%s</p>',
+                Convert::raw2xml(_t(
+                    'FourOhFourLogger.GroupedViewTooLarge',
+                    'These filters match {rows} log rows, more than the {max} that can be grouped by link, '
+                    . 'so the list shows one row per link and referrer. Choose a Category or Status to '
+                    . 'narrow it down, or raise FourOhFourReport.grouped_view_max_rows in the config.',
+                    array(
+                        'rows' => $this->groupedRowCount($params),
+                        'max' => (int) static::config()->get('grouped_view_max_rows'),
+                    )
+                ))
+            ));
+            if ($fields->dataFieldByName('Report')) {
+                $fields->insertBefore('Report', $notice);
+            } else {
+                $fields->push($notice);
+            }
+        }
+
+        return $fields;
     }
 
     /**
@@ -306,7 +394,8 @@ class FourOhFourReport extends Report
     public function columns()
     {
         $params = $this->params();
-        $byLink = $params['View'] === self::VIEW_LINK;
+        # Per-referrer columns also when the grouped view fell back (see sourceRecords()).
+        $byLink = $params['View'] === self::VIEW_LINK && !$this->groupedViewTooLarge($params);
 
         $fields = array(
             "Count" => array(

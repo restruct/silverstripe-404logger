@@ -157,6 +157,41 @@ class FourOhFourReportAggregationTest extends SapphireTest
     }
 
     /**
+     * The grouped view holds every filtered row's link and referrer in PHP, which on a large
+     * table exhausts memory before the editor can switch views. Above grouped_view_max_rows
+     * rows the report shows the per-referrer rows instead, says why, and goes back to grouping
+     * once a filter brings the rows under the limit.
+     */
+    public function testAGroupedViewOverTheRowLimitShowsPerReferrerRowsWithANotice()
+    {
+        $this->logFixture(); # 4 open rows: old/page from three referrers, downloads/brochure.pdf
+        FourOhFourReport::config()->set('grouped_view_max_rows', 3);
+        $report = FourOhFourReport::create();
+
+        $list = $report->sourceRecords([]);
+        $this->assertInstanceOf(DataList::class, $list, 'per-referrer rows, not the grouped list');
+        $this->assertSame(4, $list->count());
+        $this->assertArrayNotHasKey('Referrers', $report->columns(), 'per-referrer columns');
+        $notice = $report->getCMSFields()->fieldByName('FourOhFourGroupedViewNotice');
+        $this->assertNotNull($notice, 'the report says why');
+        $this->assertStringContainsString('grouped_view_max_rows', (string) $notice->getContent());
+
+        # A filter that brings the rows under the limit groups again.
+        $this->assertNotInstanceOf(DataList::class, $report->sourceRecords(['Category' => 'asset']));
+
+        # At the limit: grouped, no notice.
+        FourOhFourReport::config()->set('grouped_view_max_rows', 4);
+        $report = FourOhFourReport::create();
+        $this->assertNotInstanceOf(DataList::class, $report->sourceRecords([]));
+        $this->assertArrayHasKey('Referrers', $report->columns());
+        $this->assertNull($report->getCMSFields()->fieldByName('FourOhFourGroupedViewNotice'));
+
+        # 0 switches the limit off.
+        FourOhFourReport::config()->set('grouped_view_max_rows', 0);
+        $this->assertNotInstanceOf(DataList::class, FourOhFourReport::create()->sourceRecords([]));
+    }
+
+    /**
      * The reports overview counts up to limit_count_in_overview in bounded chunks, without
      * building the grouped list (FourOhFourReportCountStub throws if it is built), and shows
      * "N+" when there are more. The filters still apply to the count.

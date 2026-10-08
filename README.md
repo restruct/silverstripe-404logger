@@ -69,6 +69,10 @@ Logged search queries are in the same section as 'Search words report'.
   *Category* (`page`, `asset`, `scanner`, `probe` or a category of your own) and *Status* (not
   handled, handled, all). The recency filter applies to the link's most recent hit; the totals stay
   lifetime totals.
+* **Large logs:** grouping by link holds every row in memory, so above
+  `FourOhFourReport.grouped_view_max_rows` rows (default 20000, after the *Category* and *Status*
+  filters; `0` switches the limit off) the report shows one row per link and referrer instead, with
+  a notice. Choose a category or status to bring it under the limit, or raise the setting.
 * **Bulk actions:** tick rows, then
   * **Ignore selected links** adds the links to the ignore list under *Settings > 404 log* (see
     below), so further hits are not logged. Needs `silverstripe/siteconfig`, and permission to
