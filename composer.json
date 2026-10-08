@@ -17,7 +17,9 @@
 	},
 	"suggest": {
 		"silverstripe/reports": "Shows the logged 404s and search queries as CMS reports",
-		"silverstripe/cms": "Enables logging of front-end search queries (SearchQueryLogger)"
+		"silverstripe/cms": "Enables logging of front-end search queries (SearchQueryLogger)",
+		"silverstripe/siteconfig": "Enables the CMS-editable 404 ignore list (Settings) and the report's ignore action",
+		"silverstripe/redirectedurls": "Enables the report's bulk action that creates redirects for broken links"
 	},
 	"extra": {
 		"installer-name": "404logger"

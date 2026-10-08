@@ -27,10 +27,20 @@ test('a 404 with an external referrer is logged, counted and listed in the repor
     await expect(row).toHaveCount(1);
     await expect(row.locator('td.col-Count')).toHaveText('2');
 
-    // From another referrer: a row of its own.
+    // From another referrer: a row of its own in the per-referrer view.
     const other = `https://other.example/${t}`;
     expect((await visitor.get(`/${link}`, { headers: { Referer: other } })).status()).toBe(404);
+//    grid = await reloadReport(page, 'fourOhFour');
+//    await expect(rowsWhere(grid, 'Link', link)).toHaveCount(2);
+//    await expect(rowsWhere(grid, 'Referrer', other).locator('td.col-Count')).toHaveText('1');
+    // 3.2 groups the default view by link (owner-approved Phase 2, 2026-10-08): one row with the
+    // summed count and the latest referrer. The per-referrer rows are the "per link and referrer" view.
     grid = await reloadReport(page, 'fourOhFour');
+    await expect(rowsWhere(grid, 'Link', link)).toHaveCount(1);
+    await expect(rowsWhere(grid, 'Link', link).locator('td.col-Count')).toHaveText('3');
+    await expect(rowsWhere(grid, 'Link', link).locator('td.col-Referrer')).toHaveText(other);
+    await page.goto('/admin/reports/show/FourOhFourReport?filters[View]=referrer');
+    grid = page.locator('#Form_EditForm_Report');
     await expect(rowsWhere(grid, 'Link', link)).toHaveCount(2);
     await expect(rowsWhere(grid, 'Referrer', other).locator('td.col-Count')).toHaveText('1');
 });

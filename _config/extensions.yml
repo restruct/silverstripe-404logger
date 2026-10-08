@@ -13,3 +13,13 @@ Only:
 SilverStripe\CMS\Model\SiteTree:
   extensions:
     - SearchQueryLogger
+---
+Name: 404logger_ignorelist
+# silverstripe/siteconfig is suggested, not required: the CMS-editable ignore list for 404s lives
+# on SiteConfig (FourOhFourIgnoreListExtension) only when it is installed.
+Only:
+  classexists: SilverStripe\SiteConfig\SiteConfig
+---
+SilverStripe\SiteConfig\SiteConfig:
+  extensions:
+    - FourOhFourIgnoreListExtension

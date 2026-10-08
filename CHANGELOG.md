@@ -1,5 +1,71 @@
 # Changelog
 
+## 3.2.0 (2026-10-08)
+
+Reports you can act on: the broken links report grouped by link with filters, bulk actions and a
+full CSV export, a search terms report, monthly hit counts and a purge task. Backward compatible:
+run a database build (see README, "Upgrading from 3.1"); no task to run.
+
+**Run the database build as part of the deploy, before the site takes traffic.** With
+silverstripe/siteconfig installed, 3.2 adds a column to `SiteConfig` (`FourOhFourIgnoreList`), and
+until the build has created it every request that reads the site config fails with a database
+error: in practice every page, the CMS included, not only 404s.
+
+### Added
+
+- **Monthly counts.** Every logged hit is also counted per calendar month (new tables
+  `FourOhFourLogMonth` and `SearchLogMonth`: log row, `YearMonth`, count), so recent demand can be
+  told apart from the lifetime count. One indexed `UPDATE` per hit (plus an `INSERT` for a row's
+  first hit in a month), race-safe through a unique index, also on 3.1's lost-insert path. Monthly
+  data starts at the upgrade: there is no history to backfill. `count_per_month: false` on
+  `FourOhFourLog` / `SearchLog` switches it off.
+- **Broken links report, one row per link:** hits summed over all referrers, number of referrers,
+  latest referrer, category, first and most recent hit, hits in period (from the monthly counts).
+  Filters: last hit in the last 30/90/365 days (`FourOhFourReport.recency_days`), category, status.
+  The per-referrer list is still there ("One row per link and referrer"). The reports overview
+  counts the links in chunks without building the list, up to core's `limit_count_in_overview`
+  ("10000+"), so a large log table does not exhaust memory on the Reports listing
+  (`FourOhFourReport.count_chunk_size`, default 2000 rows per query). Above
+  `FourOhFourReport.grouped_view_max_rows` filtered rows (default 20000) the report shows the
+  per-referrer rows instead, with a notice, since grouping holds every row in memory.
+- **Bulk actions** on the broken links report: "Ignore selected links" (adds them to a new
+  CMS-editable ignore list under Settings > 404 log, on `SiteConfig`, when silverstripe/siteconfig
+  is installed; needs permission to edit the site settings; a logged link ending in `*` is
+  skipped, since the list reads a trailing `*` as a prefix) and "Redirect selected links" (creates redirects in silverstripe/redirectedurls,
+  when installed; the target must be a site path starting with a single `/` or an `http(s)://`
+  URL of at most 255 characters). Both mark the rows handled (new columns `HandledAs`, `HandledAt`); handled rows
+  are hidden by default and come back on their next hit.
+- **Search terms report:** per term hits per active year, hits this year, recency band (this year,
+  last year, 2-3 years ago, older), "new" and "faded" flags and a noise flag; filters on band,
+  trend and noise (hidden by default); every column sorts.
+- **`LogPurgeTask`:** deletes rows older than N months (`older-than`), 404 rows the current ignore
+  rules would no longer log (`ignored`) and noise search rows (`noise`), with their monthly counts;
+  dry run, chunked, nothing deleted without a criterion. Silverstripe 5 and 6 entry points.
+- `FourOhFourLog::matchesIgnoreList()`, `FourOhFourLog::markHandled()`,
+  `SearchLog::looksLikeNoise()` (the noise rules regardless of `ignore_noise`),
+  `SearchLog::termStats()`, `HitMonthCounter`.
+- README: the reports, monthly counts, the ignore list, the purge task, and a note on the device
+  probes (`/.well-known/passkey-endpoints`, `apple-touch-icon*`, `/.well-known/traffic-advice`)
+  that make up most non-scanner 404s.
+- `silverstripe/siteconfig` and `silverstripe/redirectedurls` listed under `suggest`.
+
+### Fixed
+
+- **The CSV export of the broken links report contained the shortened URL and referrer** (the
+  grid's 120-character display text, since 3.0.1). It exports the full values now.
+- The search report's overview count is one `COUNT` query instead of building the report.
+- **Concurrent hits on the same 404 row were lost:** each request wrote back the count it had read
+  plus one. The count is raised in SQL now (`"Count" = "Count" + 1`), on the repeat-hit path and on
+  the lost-insert-race path. The same for repeat searches in `SearchLog`.
+
+### Changed
+
+- The broken links report's default view is one row per link instead of one row per link and
+  referrer, and hides rows marked handled. `FourOhFourReport::sourceRecords()` and
+  `SearchQueryReport::sourceRecords()` return an `ArrayList` of aggregated rows (the per-referrer
+  view still returns the `FourOhFourLog` list); code that subclasses the reports may need a look.
+- `FourOhFourLog::isIgnored()` also checks the CMS ignore list, as its last check.
+
 ## 3.1.0 (2026-10-07)
 
 Faster logging on large tables, and much less noise. Backward compatible: run a database build,

@@ -63,4 +63,21 @@ class FourOhFourLogWritePathTest extends SapphireTest
         $this->assertSame(6, (int) $row->Count, "the winner's count plus this hit");
         $this->assertSame((int) $row->ID, (int) $log->ID, 'logHit() returns the row it counted on');
     }
+
+    /**
+     * Concurrent repeat hits on one row: each request read Count, added one and wrote the
+     * result back, so hits counted by the others in between were overwritten. The increment is
+     * done in SQL now, so the hits staged by the spy survive.
+     */
+    public function testARepeatHitDoesNotOverwriteConcurrentHits()
+    {
+        FourOhFourLog::logHit('busy/page', 'unknown');
+        FourOhFourLogWriteSpy::$concurrentHits = 10;
+
+        $log = FourOhFourLog::logHit('busy/page', 'unknown');
+
+        $this->assertSame(12, (int) FourOhFourLog::get()->first()->Count, 'first hit + 10 concurrent + this one');
+        # The returned row is not re-read (hot path): its Count is the value read + this hit.
+        $this->assertSame(2, (int) $log->Count, 'logHit() returns the count read plus this hit');
+    }
 }
