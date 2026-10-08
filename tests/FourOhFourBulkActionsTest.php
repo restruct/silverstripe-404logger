@@ -219,6 +219,31 @@ class FourOhFourBulkActionsTest extends SapphireTest
     }
 
     /**
+     * Report access alone does not allow creating redirects: that is redirectedurls' own
+     * REDIRECTEDURLS_CREATE permission (RedirectedURL::canCreate()).
+     */
+    public function testRedirectNeedsRedirectedUrlsCreatePermission()
+    {
+        if (!class_exists(self::REDIRECT_CLASS)) {
+            $this->markTestSkipped('silverstripe/redirectedurls is not installed');
+        }
+        $class = self::REDIRECT_CLASS;
+        $log = FourOhFourLog::logHit('old/no-redirect-right', 'unknown');
+        $this->logInWithPermission('CMS_ACCESS_ReportAdmin');
+
+        $message = FourOhFourBulkActions::create()->redirect(['old/no-redirect-right'], '/news');
+
+        $this->assertStringContainsString('not allowed', $message);
+        $this->assertSame(0, $class::get()->count());
+        $this->assertNull($this->rawRow((int) $log->ID)['HandledAs']);
+
+        $this->logInWithPermission(['CMS_ACCESS_ReportAdmin', 'REDIRECTEDURLS_CREATE']);
+        FourOhFourBulkActions::create()->redirect(['old/no-redirect-right'], '/news');
+        $this->assertSame(1, $class::get()->count());
+        $this->assertSame('redirected', $this->rawRow((int) $log->ID)['HandledAs']);
+    }
+
+    /**
      * The GridField action path: checkboxes and target arrive in $data, and the list is rebuilt
      * with the posted filters so the handled rows drop out of the response.
      */
