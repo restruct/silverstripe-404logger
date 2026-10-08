@@ -287,7 +287,7 @@ class FourOhFourLog
      * all wrote the same result back.
      *
      * @param FourOhFourLog $row
-     * @return FourOhFourLog The row as now stored, so its Count includes concurrent hits
+     * @return FourOhFourLog The same row, its in-memory Count = the value read + 1
      */
     protected static function countHit($row)
     {
@@ -299,7 +299,14 @@ class FourOhFourLog
             array('"ID"' => (int) $row->ID)
         )->execute();
 
-        return static::get()->byID($row->ID) ?: $row;
+//        return static::get()->byID($row->ID) ?: $row;
+        # No re-read: this runs on every repeat 404, and the stored Count is already right
+        # through the SQL increment above. The in-memory value is the one read plus this hit,
+        # which misses only hits counted concurrently; nothing in the module reads it back.
+        # Set after the write, so it is never written from here.
+        $row->Count = (int) $row->Count + 1;
+
+        return $row;
     }
 
     /**

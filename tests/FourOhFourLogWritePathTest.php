@@ -77,6 +77,7 @@ class FourOhFourLogWritePathTest extends SapphireTest
         $log = FourOhFourLog::logHit('busy/page', 'unknown');
 
         $this->assertSame(12, (int) FourOhFourLog::get()->first()->Count, 'first hit + 10 concurrent + this one');
-        $this->assertSame(12, (int) $log->Count, 'logHit() returns the count in the database');
+        # The returned row is not re-read (hot path): its Count is the value read + this hit.
+        $this->assertSame(2, (int) $log->Count, 'logHit() returns the count read plus this hit');
     }
 }
