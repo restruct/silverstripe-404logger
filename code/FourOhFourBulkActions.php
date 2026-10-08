@@ -254,6 +254,12 @@ class FourOhFourBulkActions implements GridField_HTMLProvider, GridField_ColumnP
                 'Enter a path on this site starting with / (eg /new-page), or a full URL starting with http:// or https://.'
             );
         }
+        # The scheme is accepted in any case but stored lower-cased: redirectedurls passes the
+        # target through Director::absoluteURL(), which recognises only a lower-case "http(s)://"
+        # and would make "HTTPS://host/x" a path on this site (http://this-site/HTTPS://host/x).
+        $to = preg_replace_callback('~^https?://~i', function ($match) {
+            return strtolower($match[0]);
+        }, $to);
         # RedirectedURL.To is a Varchar(255): a longer target would be cut off below and
         # redirect somewhere else than typed.
         if (mb_strlen($to) > 255) {

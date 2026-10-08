@@ -6,6 +6,7 @@ use FourOhFourBulkActions;
 use FourOhFourIgnoreListExtension;
 use FourOhFourLog;
 use FourOhFourReport;
+use SilverStripe\Control\Director;
 use SilverStripe\Dev\SapphireTest;
 use SilverStripe\Forms\FieldList;
 use SilverStripe\Forms\Form;
@@ -284,8 +285,14 @@ class FourOhFourBulkActionsTest extends SapphireTest
         $this->assertSame(0, $class::get()->count());
         $this->assertNull($this->rawRow((int) $log->ID)['HandledAs']);
 
+        # An upper-case scheme is accepted but stored lower-cased: Director::absoluteURL(), which
+        # redirectedurls passes the target through, only recognises a lower-case "http(s)://" and
+        # would turn "HTTPS://host/x" into a path on this site.
         $bulk->redirect(['old/unsafe-target'], 'HTTPS://www.example/new-home');
-        $this->assertSame('HTTPS://www.example/new-home', $class::get()->first()->To);
+        $created = $class::get()->first();
+        $this->assertSame('https://www.example/new-home', $created->To);
+        $this->assertSame('https://www.example/new-home', Director::absoluteURL((string) $created->Link()));
+        $this->assertSame('redirected', $this->rawRow((int) $log->ID)['HandledAs']);
     }
 
     /**
