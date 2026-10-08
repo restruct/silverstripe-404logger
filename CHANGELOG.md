@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.2.0 (unreleased)
+## 3.2.0 (2026-10-08)
 
 Reports you can act on: the broken links report grouped by link with filters, bulk actions and a
 full CSV export, a search terms report, monthly hit counts and a purge task. Backward compatible:
