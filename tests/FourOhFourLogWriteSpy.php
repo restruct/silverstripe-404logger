@@ -7,6 +7,7 @@ use SilverStripe\Core\Extension;
 use SilverStripe\Dev\TestOnly;
 use SilverStripe\ORM\DataObject;
 use SilverStripe\ORM\Queries\SQLInsert;
+use SilverStripe\ORM\Queries\SQLUpdate;
 
 /**
  * TEST ONLY: watches FourOhFourLog inserts, and can stage the race logHit() guards against.
@@ -23,16 +24,30 @@ class FourOhFourLogWriteSpy extends Extension implements TestOnly
      */
     public static ?int $raceWithCount = null;
 
+    /**
+     * When set, the next update of an existing row first raw-adds this many hits to its Count,
+     * as concurrent requests counting on the same row would between logHit()'s lookup and its
+     * write.
+     */
+    public static ?int $concurrentHits = null;
+
     public static function reset(): void
     {
         static::$inserts = 0;
         static::$raceWithCount = null;
+        static::$concurrentHits = null;
     }
 
     public function onBeforeWrite()
     {
         $owner = $this->getOwner();
         if ($owner->isInDB()) {
+            if (static::$concurrentHits !== null) {
+                $hits = static::$concurrentHits;
+                static::$concurrentHits = null;
+                $table = DataObject::getSchema()->tableName(FourOhFourLog::class);
+                SQLUpdate::create("\"$table\"", ['"Count"' => ['"Count" + ?' => [$hits]]], ['"ID"' => $owner->ID])->execute();
+            }
             return;
         }
         static::$inserts++;

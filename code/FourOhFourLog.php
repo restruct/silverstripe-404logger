@@ -237,7 +237,7 @@ class FourOhFourLog
             }
         }
         if ($existing) {
-            $existing->Count = $existing->Count+1;
+//            $existing->Count = $existing->Count+1;
             # Re-set on every hit, so a change to the category config shows on the next hit.
             $existing->Category = $category;
             # A link marked handled that 404s again was not handled after all: show it again.
@@ -245,7 +245,8 @@ class FourOhFourLog
                 $existing->HandledAs = null;
                 $existing->HandledAt = null;
             }
-            $existing->write();
+//            $existing->write();
+            $existing = static::countHit($existing);
             static::countMonth($existing);
             return $existing;
         }
@@ -267,14 +268,38 @@ class FourOhFourLog
             if (!$existing) {
                 throw $e;
             }
-            $existing->Count = $existing->Count+1;
-            $existing->write();
+//            $existing->Count = $existing->Count+1;
+//            $existing->write();
+            $existing = static::countHit($existing);
             static::countMonth($existing);
             return $existing;
         }
 
         static::countMonth($log);
         return $log;
+    }
+
+    /**
+     * Count one hit on an existing row. The ORM write stamps LastEdited (the most recent hit,
+     * forced since nothing else may have changed) with the row's other changes; the Count is
+     * then raised in SQL ("Count" = "Count" + 1, like HitMonthCounter::bump()). Setting
+     * Count = the value read + 1 lost hits under concurrency: requests that read the same value
+     * all wrote the same result back.
+     *
+     * @param FourOhFourLog $row
+     * @return FourOhFourLog The row as now stored, so its Count includes concurrent hits
+     */
+    protected static function countHit($row)
+    {
+        $row->write(false, false, true);
+        $table = static::getSchema()->tableName(static::class);
+        SQLUpdate::create(
+            "\"$table\"",
+            array('"Count"' => array('"Count" + ?' => array(1))),
+            array('"ID"' => (int) $row->ID)
+        )->execute();
+
+        return static::get()->byID($row->ID) ?: $row;
     }
 
     /**

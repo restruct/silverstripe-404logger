@@ -45,6 +45,9 @@ run a database build (see README, "Upgrading from 3.1"); no task to run.
 - **The CSV export of the broken links report contained the shortened URL and referrer** (the
   grid's 120-character display text, since 3.0.1). It exports the full values now.
 - The search report's overview count is one `COUNT` query instead of building the report.
+- **Concurrent hits on the same 404 row were lost:** each request wrote back the count it had read
+  plus one. The count is raised in SQL now (`"Count" = "Count" + 1`), on the repeat-hit path and on
+  the lost-insert-race path.
 
 ### Changed
 
