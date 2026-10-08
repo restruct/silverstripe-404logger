@@ -75,7 +75,8 @@ Logged search queries are in the same section as 'Search words report'.
     edit the site settings (`SiteConfig::canEdit()`, by default "Manage site configuration"), since
     the list is saved there; without it the button is not shown.
   * **Redirect selected links** creates a redirect from each link to the URL typed next to the
-    button (a path such as `/new-page`, or a full URL), in
+    button (a path on the site starting with a single `/`, such as `/new-page`, or a full
+    `http://` or `https://` URL; anything else, including `//host/...`, is refused), in
     [silverstripe/redirectedurls](https://github.com/silverstripe/silverstripe-redirectedurls). Only
     shown when that module is installed; it needs that module's "Create a redirect" permission. A
     link that already has a redirect, or whose path is longer than 255 characters, is skipped.

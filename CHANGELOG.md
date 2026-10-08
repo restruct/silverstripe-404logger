@@ -24,7 +24,8 @@ run a database build (see README, "Upgrading from 3.1"); no task to run.
 - **Bulk actions** on the broken links report: "Ignore selected links" (adds them to a new
   CMS-editable ignore list under Settings > 404 log, on `SiteConfig`, when silverstripe/siteconfig
   is installed; needs permission to edit the site settings) and "Redirect selected links" (creates redirects in silverstripe/redirectedurls,
-  when installed). Both mark the rows handled (new columns `HandledAs`, `HandledAt`); handled rows
+  when installed; the target must be a site path starting with a single `/` or an `http(s)://`
+  URL of at most 255 characters). Both mark the rows handled (new columns `HandledAs`, `HandledAt`); handled rows
   are hidden by default and come back on their next hit.
 - **Search terms report:** per term hits per active year, hits this year, recency band (this year,
   last year, 2-3 years ago, older), "new" and "faded" flags and a noise flag; filters on band,

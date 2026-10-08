@@ -244,6 +244,44 @@ class FourOhFourBulkActionsTest extends SapphireTest
     }
 
     /**
+     * The typed target becomes the Location of a redirect served to every visitor, so only a
+     * site-relative path ("/x", not the protocol-relative "//host/x" or "/\host/x") or an
+     * http(s) URL is accepted.
+     */
+    public function testRedirectRefusesTargetsThatAreNotASitePathOrAWebUrl()
+    {
+        if (!class_exists(self::REDIRECT_CLASS)) {
+            $this->markTestSkipped('silverstripe/redirectedurls is not installed');
+        }
+        $class = self::REDIRECT_CLASS;
+        $log = FourOhFourLog::logHit('old/unsafe-target', 'unknown');
+        $this->logInWithPermission('ADMIN');
+        $bulk = FourOhFourBulkActions::create();
+
+        $refused = [
+            '//evil.example/x',
+            '/\\evil.example/x',
+            'javascript:alert(1)',
+            'JavaScript://evil.example/%0Aalert(1)',
+            'data:text/html,x',
+            'evil.example/x',
+            'ftp://files.example/x',
+            'https://',
+            "/news\r\nX-Injected: 1",
+        ];
+        foreach ($refused as $to) {
+            $message = $bulk->redirect(['old/unsafe-target'], $to);
+            $this->assertStringContainsString('starting with /', $message, $to);
+        }
+        $this->assertStringContainsString('255', $bulk->redirect(['old/unsafe-target'], '/' . str_repeat('a', 255)));
+        $this->assertSame(0, $class::get()->count());
+        $this->assertNull($this->rawRow((int) $log->ID)['HandledAs']);
+
+        $bulk->redirect(['old/unsafe-target'], 'HTTPS://www.example/new-home');
+        $this->assertSame('HTTPS://www.example/new-home', $class::get()->first()->To);
+    }
+
+    /**
      * The GridField action path: checkboxes and target arrive in $data, and the list is rebuilt
      * with the posted filters so the handled rows drop out of the response.
      */

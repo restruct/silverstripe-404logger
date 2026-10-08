@@ -248,6 +248,17 @@ class FourOhFourBulkActions implements GridField_HTMLProvider, GridField_ColumnP
         if ($to === '') {
             return _t('FourOhFourLogger.RedirectToMissing', 'Enter the URL to redirect to.');
         }
+        if (!static::isValidRedirectTarget($to)) {
+            return _t(
+                'FourOhFourLogger.RedirectToInvalid',
+                'Enter a path on this site starting with / (eg /new-page), or a full URL starting with http:// or https://.'
+            );
+        }
+        # RedirectedURL.To is a Varchar(255): a longer target would be cut off below and
+        # redirect somewhere else than typed.
+        if (mb_strlen($to) > 255) {
+            return _t('FourOhFourLogger.RedirectToTooLong', 'The URL to redirect to is longer than 255 characters.');
+        }
         $class = self::REDIRECT_CLASS;
         $singleton = $class::singleton();
         if (!static::canManage() || !$singleton->canCreate()) {
@@ -282,6 +293,34 @@ class FourOhFourBulkActions implements GridField_HTMLProvider, GridField_ColumnP
             'Created {count} redirect(s) to {to}; {skipped} skipped (already redirected or too long).',
             array('count' => count($created), 'to' => $to, 'skipped' => $skipped)
         );
+    }
+
+    /**
+     * Whether a typed redirect target is a path on this site or a web URL. It becomes the
+     * Location of a redirect served to every visitor of the old link, so anything else is
+     * refused: "//host/x" and "/\host/x" (protocol-relative: browsers treat both as another
+     * host), other schemes ("javascript:", "data:"), a bare "host/x", and whitespace or control
+     * characters anywhere (header injection, or a target that is not what it looks like).
+     *
+     * @param string $to Trimmed target
+     * @return bool
+     */
+    public static function isValidRedirectTarget($to)
+    {
+        $to = (string) $to;
+        if ($to === '' || preg_match('~[\x00-\x20\x7f]~', $to)) {
+            return false;
+        }
+        # A site-relative path: one leading slash, not followed by a slash or backslash.
+        if (preg_match('~^/(?![/\\\\])~', $to)) {
+            return true;
+        }
+        # An absolute http(s) URL with a host.
+        if (preg_match('~^https?://[^/\\\\?#]~i', $to)) {
+            return (string) parse_url($to, PHP_URL_HOST) !== '';
+        }
+
+        return false;
     }
 
     /**
