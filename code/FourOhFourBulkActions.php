@@ -9,6 +9,7 @@ use SilverStripe\Forms\GridField\GridField_ColumnProvider;
 use SilverStripe\Forms\GridField\GridField_FormAction;
 use SilverStripe\Forms\GridField\GridField_HTMLProvider;
 use SilverStripe\Security\Permission;
+use SilverStripe\View\Requirements;
 
 /**
  * Bulk actions for the broken links report: a checkbox per row, and buttons that act on the
@@ -23,7 +24,8 @@ use SilverStripe\Security\Permission;
  * Both mark the rows handled (FourOhFourLog::markHandled()), which the report hides by default.
  *
  * No JavaScript of its own: the checkboxes are ordinary inputs of the report form, and the CMS
- * GridField script posts every input of the form with a GridField action.
+ * GridField script posts every input of the form with a GridField action. One small stylesheet
+ * (client/css/fourohfour-report.css, since 3.3) puts the controls on one row in the toolbar.
  */
 class FourOhFourBulkActions implements GridField_HTMLProvider, GridField_ColumnProvider, GridField_ActionProvider
 {
@@ -38,6 +40,9 @@ class FourOhFourBulkActions implements GridField_HTMLProvider, GridField_ColumnP
     /** Name of the row checkboxes (an array of row IDs) and of the redirect target input. */
     const FIELD_SELECT = 'FourOhFourBulk';
     const FIELD_REDIRECT_TO = 'FourOhFourRedirectTo';
+
+    /** The toolbar stylesheet, exposed through composer.json extra.expose ('client/css'). */
+    const CSS = 'restruct/silverstripe-404logger: client/css/fourohfour-report.css';
 
     /** @var FourOhFourReport|null */
     protected $report;
@@ -136,6 +141,10 @@ class FourOhFourBulkActions implements GridField_HTMLProvider, GridField_ColumnP
         if (!$parts) {
             return array();
         }
+
+        # Only where the controls are rendered. An ajax (PJAX) response of the CMS carries it
+        # along in its X-Include-CSS header (HTTPResponse::output()).
+        Requirements::css(self::CSS);
 
         return array(
             'buttons-before-right' => '<div class="fourohfour-bulk">' . implode(' ', $parts) . '</div>',

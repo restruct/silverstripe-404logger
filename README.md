@@ -66,13 +66,16 @@ Logged search queries are in the same section as 'Search words report'.
   monthly counts below). Choose "One row per link and referrer" under *Show* for the list as it was
   before 3.2.
 * **Filters:** *Last hit* (in the last 30, 90 or 365 days; `FourOhFourReport.recency_days`),
-  *Category* (`page`, `asset`, `scanner`, `probe` or a category of your own) and *Status* (not
-  handled, handled, all). The recency filter applies to the link's most recent hit; the totals stay
-  lifetime totals.
+  *Category* (`page`, `asset`, `scanner`, `probe` or a category of your own), *Status* (not
+  handled, handled, all) and, since 3.3, *Link contains* (a piece of text in the link,
+  case-insensitive; `%` and `_` are plain characters, not wildcards). The recency filter applies to
+  the link's most recent hit; the totals stay lifetime totals. The filters are part of the URL
+  (`?filters[LinkContains]=old-news`), so a filtered view can be shared.
 * **Large logs:** grouping by link holds every row in memory, so above
-  `FourOhFourReport.grouped_view_max_rows` rows (default 20000, after the *Category* and *Status*
-  filters; `0` switches the limit off) the report shows one row per link and referrer instead, with
-  a notice. Choose a category or status to bring it under the limit, or raise the setting.
+  `FourOhFourReport.grouped_view_max_rows` rows (default 20000, after the *Category*, *Status* and
+  *Link contains* filters; `0` switches the limit off) the report shows one row per link and
+  referrer instead, with a notice. Choose a category or status, or type part of the link, to bring
+  it under the limit, or raise the setting.
 * **Bulk actions:** tick rows, then
   * **Ignore selected links** adds the links to the ignore list under *Settings > 404 log* (see
     below), so further hits are not logged. Needs `silverstripe/siteconfig`, and permission to
@@ -144,7 +147,8 @@ vendor/bin/sake dev/tasks/LogPurgeTask older-than=24 ignored=1 noise=1 dry-run=1
   counts of months before that (also of the rows that are kept).
 * `ignored`: 404 rows that the current rules would no longer log (ignored categories,
   `ignore_patterns`, the ignore list), eg after ignoring links from the report, or rows from before
-  3.1 that are scanner noise.
+  3.1 that are scanner noise. Since 3.3 that includes scanner rows whose referrer is fake (the
+  link itself or the site root, see `self_referrer_is_no_referrer`).
 * `noise`: search rows that look like noise.
 * `dry-run`: only report the counts. A deleted row takes its monthly counts with it.
 
@@ -208,6 +212,8 @@ the Reports section). Logging does not depend on it: hits are logged for every v
 | `FourOhFourLog.ignore_categories` | `scanner: true`, `probe: true` | Categories whose hits are not logged |
 | `FourOhFourLog.ignore_patterns` | none | Extra regexes whose hits are not logged, whatever their category or referrer |
 | `FourOhFourLog.ignore_only_without_referrer` | `true` | An ignored `scanner` hit is only dropped when it has no referrer |
+| `FourOhFourLog.self_referrer_is_no_referrer` | `true` | A referrer that is the link itself or the bare site root, on the site's own host, counts as no referrer (since 3.3) |
+| `FourOhFourLog.site_hosts` | none | Other host names of this site for the rule above (the request's host, `Director::host()` and `SS_BASE_URL` are always included) |
 | `FourOhFourLog.count_per_month` | `true` | Count each logged hit per calendar month too (see "Monthly counts") |
 | `FourOhFourReport.link_display_length` | `120` | Characters of a link or referrer shown in the report grid |
 | `FourOhFourReport.recency_days` | `30`, `90`, `365` | Choices of the report's "Last hit" filter, in days |
@@ -228,7 +234,7 @@ included** (eg `wp-login.php?action=register`), and are full PCRE patterns with 
 | Category | What it catches (defaults) | Logged by default |
 |----------|----------------------------|-------------------|
 | `probe` | Browsers and devices asking on their own initiative: `.well-known/*` (passkey-endpoints, traffic-advice, change-password, ...), `apple-touch-icon*`, `favicon*`, `robots.txt`, `manifest.json`, `sitemap*.xml`, `autodiscover/` | no |
-| `scanner` | Vulnerability scanners: `*.php` and other script extensions, dotfiles (`.env`, `.git/`), WordPress's own paths (`wp-admin/`, `wp-login.php`, `xmlrpc.php`) and Joomla paths, secret and dump files anywhere (`*.sql`, `*.bak`, `*.pem`), archives, logs and `*.json` at the site root only (`backup.zip`, `error.log`, `config.json`), credential files, admin tools (`phpmyadmin` anywhere; `actuator/`, `jenkins/`, `administrator/` as the first segment only), `vendor/composer/`, `node_modules/`, path traversal, `@fs/` and injection strings | no, unless the hit has a referrer (see below) |
+| `scanner` | Vulnerability scanners: `*.php` and other script extensions, dotfiles (`.env`, `.git/`), WordPress's own paths (`wp-admin/`, `wp-login.php`, `xmlrpc.php`) and Joomla paths, secret and dump files anywhere (`*.sql`, `*.bak`, `*.pem`), archives, logs and `*.json` at the site root only (`backup.zip`, `error.log`, `config.json`), credential files, admin tools (`phpmyadmin` anywhere; `actuator/`, `jenkins/`, `administrator/` as the first segment only), `vendor/composer/`, `node_modules/`, path traversal, `@fs/` and injection strings; since 3.3 also AI/agent/serverless RCE probes (`langflow/`, `api/v1/validate/code`, `functionRouter`, ...), dev-server endpoints (`__vite*`, `__webpack_hmr`, `dist/manifest.json`), deploy files (`Dockerfile` and `*.toml` at the root, `*credentials.json`, `ssl/*.key`, `debug/vars`), `var/run/secrets/`, scanner canaries, `?s=test` / `?s=1'` probes and `php-cgi.exe` | no, unless the hit has a real referrer (see below) |
 | `asset` | A missing file: anything under `assets/` or `_resources/`, or a file extension (images, documents, media, css/js, fonts) | yes |
 | `page` | Everything else | yes |
 
@@ -238,13 +244,37 @@ row (`FourOhFourLog.Category`) and refreshed on every hit.
 
 The scanner patterns match file names and path segments, never a bare word, so pages such as
 `team/jenkins-smith`, `news/wordpress-vs-silverstripe` or `downloads/brochure.zip` stay ordinary
-pages and assets.
+pages and assets. Probe names that could also be a page's URL segment (`inngest`, `exec-py`,
+`debug/vars`) only match as the exact path from the site root. Paths that are scanner noise on one
+site and real pages on another (a root `api/` prefix, `graphql`, `dashboard`, `settings`) are not in
+the defaults: add them in your project's YAML (below) if they are noise on your site.
 
 **Scanner hits with a referrer are logged.** Scanners rarely send a `Referer` header, while a real
 broken inbound link to an old `.php` or WordPress URL usually comes with the page that links to it.
 So with `ignore_only_without_referrer: true` (the default) a scanner hit is only dropped when it has
 no referrer. Set it to `false` to drop every scanner hit. Probes are dropped either way, and
 `ignore_patterns` apply whatever the referrer.
+
+**A fake referrer is no referrer** (since 3.3). Scanners have started to send a `Referer` that is
+the requested URL itself (`https://example.com/wp-login.php` for `/wp-login.php`) or the bare site
+root (`https://example.com/`), which made every such hit "linked" and so logged. A real broken
+link never has itself as referrer, and the site root is (almost) never the referrer of a deep
+404. With `self_referrer_is_no_referrer: true` (the default) such a referrer counts as none for
+the decision above. It only applies to a referrer on one of the site's own hosts: the host of the
+request, `Director::host()` (`Director.alternate_base_url` when set), the host of `SS_BASE_URL`
+and any listed in `site_hosts`, each also with or without `www.` and with any port. The path and
+query string are compared case-insensitively and URL-decoded (a site in a subfolder: relative to
+that folder); the root only counts without a query string. A page or asset hit is logged as
+before, with the referrer as sent; `LogPurgeTask`'s `ignored` criterion follows the same rule.
+
+```yaml
+FourOhFourLog:
+  # The same site is also served on these domains
+  site_hosts:
+    - 'example.org'
+  # Count a self or root referrer as a referrer after all (3.2 behaviour)
+  # self_referrer_is_no_referrer: false
+```
 
 Patterns are keyed by name, so a project can switch one off, add its own, or add a category:
 

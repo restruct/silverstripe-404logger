@@ -135,6 +135,125 @@ class FourOhFourCategoryTest extends SapphireTest
     }
 
     /**
+     * 3.3 scanner patterns (issue #14, from a production log): each example from the issue, as
+     * [link, pattern name], is a scanner by that pattern.
+     */
+    public static function provide33ScannerLinks(): array
+    {
+        return [
+            // AI, agent and serverless RCE probes
+            ['langflow/api/v1/validate/code', 'rce_probes'],
+            ['flowise/api/v1/prediction', 'rce_probes'],
+            ['api/v1/validate/code', 'rce_probes'],
+            ['api/v1/build_public_tmp/x/flow', 'rce_probes'],
+            ['api/v1/node-load-method/customMCP', 'rce_probes'],
+            ['functionRouter', 'rce_probes'],
+            ['api/functionRouter', 'rce_probes'],
+            ['feast/read-document', 'rce_probes'],
+            ['inngest', 'rce_probes'],
+            ['api/inngest', 'rce_probes'],
+            ['api/fs/exec', 'rce_probes'],
+            ['exec-py', 'rce_probes'],
+            ['api/designer/v1/file-content?path=x', 'rce_probes'],
+            ['api/templates/preview', 'rce_probes'],
+            // dev servers and build tooling
+            ['__vite_rsc_findSourceMapURL?filename=x', 'dev_tooling'],
+            ['__webpack_hmr', 'dev_tooling'],
+            ['__/firebase/init.json', 'dev_tooling'],
+            ['dist/manifest.json', 'dev_tooling'],
+            ['static/manifest.json', 'dev_tooling'],
+            // deploy and config files
+            ['Dockerfile', 'deploy_files'],
+            ['fly.toml', 'deploy_files'],
+            ['netlify.toml', 'deploy_files'],
+            ['wrangler.toml', 'deploy_files'],
+            ['supabase/config.toml', 'deploy_files'],
+            ['config/gcp-credentials.json', 'deploy_files'],
+            ['public/admin.json', 'deploy_files'],
+            ['ssl/server.key', 'deploy_files'],
+            ['debug/vars', 'deploy_files'],
+            // traversal targets without '..', canaries, search probes, PHP-CGI
+            ['var/run/secrets/kubernetes.io/serviceaccount/token', 'system_paths'],
+            ['z9x8c7v6b5-debug-trigger-1234', 'canaries'],
+            ['cart?s=test', 'search_probes'],
+            ['products?s=1\'', 'search_probes'],
+            ['search/?s=\'', 'search_probes'],
+            ['api/v1?s=test', 'search_probes'],
+            ['?s=99\'', 'search_probes'],
+            ['php-cgi/php-cgi.exe?%ADd+allow_url_include%3d1', 'php_cgi'],
+        ];
+    }
+
+    /**
+     * @dataProvider provide33ScannerLinks
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('provide33ScannerLinks')]
+    public function test33PatternCategorisesItsExample(string $link, string $pattern)
+    {
+        $this->assertSame('scanner', FourOhFourLog::categorise($link), $link);
+
+        # And it is THIS pattern that does it: with the pattern off, the link is no scanner.
+        FourOhFourLog::config()->merge('category_patterns', ['scanner' => [$pattern => null]]);
+        $this->assertNotSame('scanner', FourOhFourLog::categorise($link), "$link without $pattern");
+    }
+
+    /**
+     * Must-not-match controls for the 3.3 patterns: real page URLs (and missing files) that share
+     * a word with a probe stay what they were.
+     */
+    public static function provide33Controls(): array
+    {
+        return [
+            ['blog/langflow-review', 'page'],
+            ['langflow', 'page'],
+            ['team/flowise-workshop', 'page'],
+            ['api/v1/validate/codes-of-conduct', 'page'],
+            ['functionrouter', 'page'],
+            ['news/functionRouter-explained', 'page'],
+            ['read-document', 'page'],
+            ['docs/read-document', 'page'],
+            ['blog/inngest-vs-cron', 'page'],
+            ['inngest-review', 'page'],
+            ['exec-python-course', 'page'],
+            ['courses/exec-py', 'page'],
+            ['api/templates', 'page'],
+            ['api/templates/previews-2024', 'page'],
+            ['docs/webpack-hmr-guide', 'page'],
+            ['firebase/init', 'page'],
+            ['app/dist/manifest.json', 'page'],
+            ['dockerfile-tutorial', 'page'],
+            ['blog/how-to-write-a-dockerfile', 'page'],
+            ['docs/fly.toml', 'page'],
+            ['supabase/config', 'page'],
+            ['public/admin', 'page'],
+            ['assets/client-credentials.json', 'asset'],
+            ['ssl', 'page'],
+            ['services/ssl/certificates', 'page'],
+            ['debug', 'page'],
+            ['debug/vars-explained', 'page'],
+            ['blog/debug/vars', 'page'],
+            ['private-key', 'page'],
+            ['var/run/secret-santa', 'page'],
+            ['debug-trigger', 'page'],
+            ['search?s=testing', 'page'],
+            ['search?s=test+case', 'page'],
+            ['shop/cart?s=test', 'page'],
+            ['products?s=test&page=2', 'page'],
+            ['search?q=test', 'page'],
+            ['php-cgi-tutorial', 'page'],
+        ];
+    }
+
+    /**
+     * @dataProvider provide33Controls
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('provide33Controls')]
+    public function test33PatternControls(string $link, string $expected)
+    {
+        $this->assertSame($expected, FourOhFourLog::categorise($link), $link);
+    }
+
+    /**
      * Scanners rarely send a Referer; a real broken inbound link to an old .php URL usually
      * does. By default (ignore_only_without_referrer) a scanner hit WITH a referrer is logged.
      */
