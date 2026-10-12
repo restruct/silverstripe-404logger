@@ -268,6 +268,7 @@ class FourOhFourReportAggregationTest extends SapphireTest
         foreach ($report->parameterFields() as $paramField) {
             $names[] = $paramField->getName();
         }
-        $this->assertSame(['View', 'Recency', 'Category', 'Status'], $names);
+        # 'LinkContains' since 3.3 (issue #13: the "Link contains" filter).
+        $this->assertSame(['View', 'Recency', 'Category', 'Status', 'LinkContains'], $names);
     }
 }
