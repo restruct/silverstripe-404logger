@@ -5,6 +5,7 @@ use SilverStripe\Forms\DropdownField;
 use SilverStripe\Forms\FieldList;
 use SilverStripe\Forms\GridField\GridFieldExportButton;
 use SilverStripe\Forms\LiteralField;
+use SilverStripe\Forms\TextField;
 use SilverStripe\ORM\DataObject;
 use SilverStripe\ORM\FieldType\DBDatetime;
 use SilverStripe\ORM\FieldType\DBField;
@@ -81,6 +82,9 @@ class FourOhFourReport extends Report
      */
     private static $grouped_view_max_rows = 20000;
 
+    /** Longest "Link contains" term used, in characters (Link is a Varchar(2048)). */
+    const LINK_TERM_MAX_LENGTH = 255;
+
     /** @var array<string, int> Memoised row counts per filter set (see groupedRowCount()) */
     protected $groupedRowCounts = array();
 
@@ -117,7 +121,10 @@ class FourOhFourReport extends Report
                 self::STATUS_OPEN => _t('FourOhFourLogger.StatusOpen', 'Not handled'),
                 self::STATUS_HANDLED => _t('FourOhFourLogger.StatusHandled', 'Handled (ignored or redirected)'),
                 self::STATUS_ALL => _t('FourOhFourLogger.StatusAll', 'All'),
-            ), $params['Status'])
+            ), $params['Status']),
+            # Since 3.3: find given links (eg to redirect them) without paging through the list.
+            TextField::create('LinkContains', _t('FourOhFourLogger.LinkContains', 'Link contains'), $params['LinkContains'])
+                ->setMaxLength(self::LINK_TERM_MAX_LENGTH)
         );
     }
 
@@ -125,7 +132,7 @@ class FourOhFourReport extends Report
      * The report's filter values, from $params or else the request, with defaults filled in.
      *
      * @param array|null $params
-     * @return array{View: string, Recency: int, Category: string, Status: string}
+     * @return array{View: string, Recency: int, Category: string, Status: string, LinkContains: string}
      */
     public function params($params = null)
     {
@@ -142,6 +149,9 @@ class FourOhFourReport extends Report
             'Recency' => isset($params['Recency']) ? max(0, (int) $params['Recency']) : 0,
             'Category' => isset($params['Category']) ? trim((string) $params['Category']) : '',
             'Status' => in_array($status, array(self::STATUS_HANDLED, self::STATUS_ALL), true) ? $status : self::STATUS_OPEN,
+            # A string only (an array from '?filters[LinkContains][]=' is no term), trimmed, capped.
+            'LinkContains' => isset($params['LinkContains']) && is_scalar($params['LinkContains'])
+                ? mb_substr(trim((string) $params['LinkContains']), 0, self::LINK_TERM_MAX_LENGTH) : '',
         );
     }
 
@@ -158,8 +168,8 @@ class FourOhFourReport extends Report
 
     /**
      * Whether the grouped view was asked for but has more rows to group than
-     * grouped_view_max_rows. Counts the rows linkRows() would read: the Status and Category
-     * filters narrow them, the recency filter does not (it applies to a link's last hit, and the
+     * grouped_view_max_rows. Counts the rows linkRows() would read: the Status, Category and
+     * "Link contains" filters narrow them, the recency filter does not (it applies to a link's last hit, and the
      * totals stay lifetime totals, so every row of the link is read).
      *
      * @param array $params From params()
@@ -245,6 +255,11 @@ class FourOhFourReport extends Report
         }
         foreach ($this->statusWhere($params) as $where) {
             $list = $list->where($where);
+        }
+        # The same escaped LIKE as the grouped view (linkWhere()), not a PartialMatch filter, which
+        # would read '%' and '_' in the term as wildcards.
+        foreach ($this->linkContainsWhere($params) as $clause => $value) {
+            $list = $list->where(array($clause => $value));
         }
 
         return $list;
@@ -479,8 +494,8 @@ class FourOhFourReport extends Report
     }
 
     /**
-     * WHERE clauses of the grouped view's rows: the Status and Category filters. The recency
-     * filter applies to a link's last hit, so linkRows() applies it after grouping.
+     * WHERE clauses of the grouped view's rows: the Status, Category and "Link contains" filters.
+     * The recency filter applies to a link's last hit, so linkRows() applies it after grouping.
      *
      * @param array $params From params()
      * @return array
@@ -491,8 +506,32 @@ class FourOhFourReport extends Report
         if ($params['Category'] !== '') {
             $where['"Category" = ?'] = $params['Category'];
         }
+        # In the same WHERE, so it also narrows the row count that decides between the grouped
+        # and the per-referrer view (groupedViewTooLarge()).
+        $where = array_merge($where, $this->linkContainsWhere($params));
 
         return $where;
+    }
+
+    /**
+     * WHERE clause for the "Link contains" filter: a case-insensitive LIKE '%term%' in which '%'
+     * and '_' in the term are literal characters, not wildcards. Escaped with '!' rather than a
+     * backslash, whose meaning in a string literal depends on the SQL mode (NO_BACKSLASH_ESCAPES)
+     * and the database.
+     *
+     * @param array $params From params()
+     * @return array<string, string> Empty when no term is set
+     */
+    protected function linkContainsWhere(array $params)
+    {
+        $term = isset($params['LinkContains']) ? (string) $params['LinkContains'] : '';
+        if ($term === '') {
+            return array();
+        }
+        $escaped = strtr(mb_strtolower($term), array('!' => '!!', '%' => '!%', '_' => '!_'));
+
+        # LOWER() like markHandled(): case-insensitive on any collation.
+        return array('LOWER("Link") LIKE ? ESCAPE \'!\'' => '%' . $escaped . '%');
     }
 
     /**
