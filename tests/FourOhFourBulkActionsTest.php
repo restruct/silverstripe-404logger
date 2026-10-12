@@ -7,6 +7,7 @@ use FourOhFourIgnoreListExtension;
 use FourOhFourLog;
 use FourOhFourReport;
 use SilverStripe\Control\Director;
+use SilverStripe\Core\Manifest\ModuleResourceLoader;
 use SilverStripe\Dev\SapphireTest;
 use SilverStripe\Forms\FieldList;
 use SilverStripe\Forms\Form;
@@ -15,6 +16,7 @@ use SilverStripe\ORM\Queries\SQLSelect;
 use SilverStripe\Reports\Report;
 use SilverStripe\Reports\ReportAdmin;
 use SilverStripe\SiteConfig\SiteConfig;
+use SilverStripe\View\Requirements;
 
 /**
  * 3.2 bulk actions on the broken links report, the CMS ignore list they write to, and the
@@ -339,6 +341,34 @@ class FourOhFourBulkActionsTest extends SapphireTest
             class_exists(self::REDIRECT_CLASS),
             str_contains($html, 'Redirect selected links'),
             'the redirect action is offered exactly when silverstripe/redirectedurls is installed'
+        );
+    }
+
+    /**
+     * 3.3 (issue #12): the toolbar stylesheet is required where the controls are rendered, the
+     * file is in the module, and composer.json exposes its folder, without which the generated
+     * /_resources/ URL points at a file that was never published (a resourceURL() check alone
+     * cannot tell: it assumes the expose happened).
+     */
+    public function testTheBulkControlsStylesheetIsRequiredAndExposed()
+    {
+        $module = dirname(__DIR__);
+        $this->assertFileExists($module . '/client/css/fourohfour-report.css');
+        $expose = json_decode((string) file_get_contents($module . '/composer.json'), true)['extra']['expose'] ?? [];
+        $this->assertContains('client/css', $expose);
+
+        $this->logInWithPermission('ADMIN');
+        FourOhFourLog::logHit('old/styled', 'unknown');
+        Requirements::clear();
+        $field = FourOhFourReport::create()->getReportField();
+        Form::create(ReportAdmin::singleton(), 'EditForm', FieldList::create($field), FieldList::create());
+        $html = (string) $field->forTemplate();
+
+        $this->assertStringContainsString('class="fourohfour-bulk"', $html);
+        # Stored under the resolved path ('vendor/restruct/silverstripe-404logger/client/css/...').
+        $this->assertArrayHasKey(
+            ModuleResourceLoader::singleton()->resolvePath(FourOhFourBulkActions::CSS),
+            Requirements::backend()->getCSS()
         );
     }
 }

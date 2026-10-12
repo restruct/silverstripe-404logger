@@ -22,7 +22,10 @@
 		"silverstripe/redirectedurls": "Enables the report's bulk action that creates redirects for broken links"
 	},
 	"extra": {
-		"installer-name": "404logger"
+		"installer-name": "404logger",
+		"expose": [
+			"client/css"
+		]
 	},
 	"funding": [
 		{

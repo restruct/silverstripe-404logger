@@ -1,0 +1,31 @@
+/*
+ * Broken links report: the bulk-action controls (FourOhFourBulkActions) in the grid toolbar.
+ * Without this the admin's toolbar styles put each control on its own line, three controls tall.
+ * One row instead: Ignore, then the redirect target input next to its Redirect button, wrapping
+ * only on narrow screens. Plain CSS, shipped as-is (no build step): only block comments here.
+ */
+.fourohfour-bulk {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: .5rem;
+}
+
+/* The buttons keep their own width; the margins the toolbar gives them would add to the gap. */
+.fourohfour-bulk .btn {
+    flex: 0 0 auto;
+    margin: 0;
+}
+
+/*
+ * The admin styles every text input as a full-width block (".field input.text", width: 100%),
+ * which pushed the input onto a line of its own: this selector outranks that one.
+ */
+.fourohfour-bulk input.text.fourohfour-bulk__to {
+    display: inline-block;
+    flex: 0 1 16rem;
+    width: 16rem;
+    min-width: 8rem;
+    max-width: 100%;
+}
