@@ -1,5 +1,42 @@
 # Changelog
 
+## 3.3.0 (Unreleased)
+
+Finding links in the broken links report, and less scanner noise. Backward compatible: no database
+change, no task to run. Deploys that run `composer vendor-expose` publish the new stylesheet.
+
+### Added
+
+- **"Link contains" filter** on the broken links report (#13): a piece of text in the link,
+  case-insensitive, with `%` and `_` as plain characters. Applied in the same `WHERE` as the other
+  filters, so it also narrows the row count that decides between the grouped and the per-referrer
+  view, and the overview count. Kept in the filter URL (`filters[LinkContains]`) like the others.
+- **A fake referrer counts as no referrer** (#14): a referrer on one of the site's own hosts that
+  is the requested URL itself, or the bare site root, no longer keeps a scanner hit logged under
+  `ignore_only_without_referrer`. Scanners started sending one. On by default,
+  `FourOhFourLog.self_referrer_is_no_referrer: false` restores 3.2's behaviour;
+  `FourOhFourLog.site_hosts` lists other domains of the same site. The referrer is stored as sent;
+  only the ignore decision changes. `LogPurgeTask`'s `ignored` criterion follows the same rule, so
+  it now also removes scanner rows logged with such a referrer.
+- **More default scanner patterns** (#14), from a production log, each a new key under
+  `FourOhFourLog.category_patterns.scanner` so a project can switch it off: `rce_probes` (Langflow,
+  Flowise, Spring Cloud Function `functionRouter`, `feast/read-document`, Inngest, `api/fs/exec`,
+  `exec-py`, ...), `dev_tooling` (`__vite*`, `__webpack_hmr`, `__/firebase/`,
+  `dist|static/manifest.json`), `deploy_files` (`Dockerfile` and `*.toml` at the root,
+  `supabase/config.toml`, `*credentials.json`, `public/admin.json`, `ssl/*.key`, `debug/vars`),
+  `system_paths` (`var/run/secrets/`), `canaries`, `search_probes` (exactly `?s=test` or `?s=1'`
+  on a few search-like paths) and `php_cgi` (CVE-2024-4577). Names that could be a page's URL
+  segment match only as the exact first path segment. Not added: a bare `read-document` and
+  `private-key` (ordinary page names), and the site-specific candidates from the issue.
+- `FourOhFourLog::isSelfReferrer()` and `FourOhFourLog::siteHosts()`; `logHit()` and `isIgnored()`
+  take the request's host as an optional last argument (`FourOhFourLogger` passes it).
+
+### Fixed
+
+- **The bulk-action controls of the broken links report stacked vertically** in the grid toolbar
+  (#12). A small stylesheet (`client/css/fourohfour-report.css`, exposed through `extra.expose`)
+  puts them on one row, wrapping only on narrow screens.
+
 ## 3.2.0 (2026-10-08)
 
 Reports you can act on: the broken links report grouped by link with filters, bulk actions and a
