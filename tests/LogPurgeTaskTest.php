@@ -7,6 +7,7 @@ use FourOhFourLogMonth;
 use LogPurgeTask;
 use SearchLog;
 use SearchLogMonth;
+use SilverStripe\Control\Director;
 use SilverStripe\Dev\BuildTask;
 use SilverStripe\Dev\SapphireTest;
 use SilverStripe\ORM\FieldType\DBDatetime;
@@ -115,6 +116,31 @@ class LogPurgeTaskTest extends SapphireTest
         $this->assertSame(2, $stats['fourohfour']);
         $this->assertSame(0, $stats['search']);
         $this->assertCount(3, $this->queries(), 'search rows are untouched without noise');
+    }
+
+    /**
+     * 3.3: scanner rows logged (by 3.2) because of a fake referrer, the link itself or the site
+     * root on the site's own host, are what the current rules would not log. Without a request
+     * the own hosts come from Director.alternate_base_url, SS_BASE_URL and site_hosts.
+     */
+    public function testIgnoredDeletesScannerRowsWithAFakeReferrer()
+    {
+        Director::config()->set('alternate_base_url', 'https://mysite.example/');
+        FourOhFourLog::config()->set('self_referrer_is_no_referrer', false);
+        FourOhFourLog::logHit('wp-login.php', 'https://mysite.example/wp-login.php');
+        FourOhFourLog::logHit('xmlrpc.php', 'https://mysite.example/');
+        FourOhFourLog::logHit('wp-login.php', 'https://partner.example/links');
+        FourOhFourLog::logHit('old/page', 'https://mysite.example/old/page');
+        FourOhFourLog::config()->set('self_referrer_is_no_referrer', true);
+
+        $stats = $this->purge(null, true);
+
+        $this->assertSame(2, $stats['fourohfour']);
+        $this->assertSame(
+            ['old/page' => 'https://mysite.example/old/page', 'wp-login.php' => 'https://partner.example/links'],
+            FourOhFourLog::get()->sort('Link')->map('Link', 'Referrer')->toArray(),
+            'a real referrer keeps the scanner row; a page is never ignored'
+        );
     }
 
     public function testNoiseDeletesNoiseSearchRows()

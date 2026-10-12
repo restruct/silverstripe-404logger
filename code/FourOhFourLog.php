@@ -1,5 +1,7 @@
 <?php
 
+use SilverStripe\Control\Director;
+use SilverStripe\Core\Environment;
 use SilverStripe\ORM\DataObject;
 use SilverStripe\ORM\DB;
 use SilverStripe\ORM\FieldType\DBDatetime;
@@ -121,6 +123,31 @@ class FourOhFourLog
             # 'union select' needs real whitespace, so a slug like 'union-select-committee' does
             # not match; a bare 'select ... from' is not used, it occurs in ordinary search links.
             'injection' => '~(\.\.([/\\\\?]|\x{FF0F})|(^|/)\.{3,}/|(^|/)(etc/(passwd|shadow|hosts)|var/log/|root/\.|proc/self|proc/version)|win\.ini|\x00|"|<\s*(script|img|svg|iframe)\b|javascript:|\bon(error|load)\s*=|\$\{|\bunion(\s|\+)+(all(\s|\+)+)?select\b|\b(sleep|benchmark)\s*\(|@fs/|base64_decode|eval\()~iu',
+            # Since 3.3, from a production log (issue #14). Same rule as above: a path segment or
+            # an exact path, never a bare word anywhere.
+            # Remote-code-execution probes for AI, agent and serverless tools (Langflow, Flowise,
+            # Spring Cloud Function, Feast, Inngest, ...). Names that could be a page's URL segment
+            # only as the exact first segment; 'functionRouter' case-sensitively ((?-i:...)), since a
+            # Silverstripe URL segment is lower-case. A bare 'read-document' is left out: an
+            # ordinary page name.
+            'rce_probes' => '~^(langflow|flowise)/|(^|/)api/v1/(validate/code(/|\?|$)|build_public_tmp/|node-load-method/)|^(api/)?(inngest|exec-py)(/|\?|$)|^feast/read-document(/|\?|$)|^api/(fs/exec|designer/v1/file-content|templates/preview)(/|\?|$)|^(api/)?(?-i:functionRouter)(/|\?|$)~i',
+            # Dev-server and build-tool endpoints (Vite, webpack, Firebase hosting), and build
+            # manifests in their usual output folders.
+            'dev_tooling' => '~(^|/)(__vite[\w-]*|__webpack_hmr)(/|\?|$)|^__/firebase/|^(dist|static)/manifest\.json(\?|$)~i',
+            # Deploy and config files: a Dockerfile or *.toml at the site root (fly, netlify,
+            # wrangler, railway), supabase/config.toml, *credentials.json outside the asset
+            # folders, keys under ssl/, Go's expvar page.
+            'deploy_files' => '~^(dockerfile|[^/?]*\.toml|supabase/config\.toml|public/admin\.json|debug/vars)(\?|$)|^(?!(assets|resources|_resources)/)([^?]*/)?[\w.-]*credentials\.json(\?|$)|(^|/)ssl/[^/?]+\.(key|crt|pem)(\?|$)~i',
+            # Container and system paths requested without '..' (proc/self is under 'injection').
+            'system_paths' => '~(^|/)var/run/secrets/~i',
+            # A scanner's own marker in the URL.
+            'canaries' => '~(^|/)z9x8c7v6b5-debug-trigger~i',
+            # SQL injection and form probing on search-like parameters: only this exact shape
+            # (one of these first segments or none, then '?s=test' or '?s=<digits>\'' as the
+            # whole query), so a real search link with s= is not caught.
+            'search_probes' => '~^((cart|products|register|user|account|search|api(/v1)?)/?)?\?s=(test|\d*\')$~i',
+            # PHP-CGI argument injection (CVE-2024-4577): 'php-cgi.exe' is not a script_ext.
+            'php_cgi' => '~(^|/)php-cgi(\.exe)?(/|\?|$)~i',
         ),
         # A missing file rather than a missing page.
         self::CATEGORY_ASSET => array(
@@ -164,6 +191,30 @@ class FourOhFourLog
     private static $ignore_only_without_referrer = true;
 
     /**
+     * When true, a referrer that is the requested URL itself, or the bare site root, counts as NO
+     * referrer for ignore_only_without_referrer. Scanners have started to send such a fake
+     * Referer ('https://site/<the same path>' or 'https://site/') to look like a click; a real
+     * broken link never has itself as referrer, and the bare site root is (almost) never the
+     * referrer of a deep 404. Only a referrer on one of the site's own hosts counts (the request's
+     * Host, Director::host(), SS_BASE_URL and site_hosts; with or without 'www.', port ignored).
+     * The row still stores the referrer as sent; only the ignore decision changes.
+     *
+     * @config
+     * @var bool
+     */
+    private static $self_referrer_is_no_referrer = true;
+
+    /**
+     * Extra host names of this site for self_referrer_is_no_referrer, eg other domains that serve
+     * the same site ('example.org' when the site is example.com). The request's Host, Director::host()
+     * and SS_BASE_URL are always included.
+     *
+     * @config
+     * @var string[]
+     */
+    private static $site_hosts = array();
+
+    /**
      * Whether logHit() also counts each hit per calendar month (FourOhFourLogMonth), which the
      * report uses for "hits in period". Costs one indexed UPDATE per logged hit (plus an INSERT
      * on a row's first hit in a month). Ignored hits are never counted.
@@ -190,9 +241,11 @@ class FourOhFourLog
      *
      * @param string $link Request URL relative to the site root; a leading slash is stripped
      * @param string $ref Referrer, or 'unknown'
+     * @param string|null $requestHost The request's Host header, one of the site's own hosts for
+     *        self_referrer_is_no_referrer (FourOhFourLogger passes it)
      * @return FourOhFourLog|null The row written, or null when the hit was ignored
      */
-    public static function logHit($link, $ref)
+    public static function logHit($link, $ref, $requestHost = null)
     {
         # Stored without a leading slash. Rows logged before the Silverstripe 4/5 era were stored
         # as '/path', later ones as 'path' (HTTPRequest::getURL()), so every old URL got a second
@@ -204,7 +257,7 @@ class FourOhFourLog
 
         # Categorise and filter BEFORE touching the database, so scanner noise costs no query.
         $category = static::categorise($link);
-        if (static::isIgnored($link, $category, (string) $ref)) {
+        if (static::isIgnored($link, $category, (string) $ref, $requestHost)) {
             return null;
         }
 
@@ -417,10 +470,12 @@ class FourOhFourLog
      *
      * @param string $link With or without leading slash
      * @param string|null $category Pass it when already known, to skip categorising again
-     * @param string|null $ref The referrer; null or 'unknown' means none
+     * @param string|null $ref The referrer; null or 'unknown' means none, and so does the link
+     *        itself or the bare site root when self_referrer_is_no_referrer is on
+     * @param string|null $requestHost The request's Host header (see isSelfReferrer())
      * @return bool
      */
-    public static function isIgnored($link, $category = null, $ref = null)
+    public static function isIgnored($link, $category = null, $ref = null, $requestHost = null)
     {
         if ($category === null) {
             $category = static::categorise($link);
@@ -428,6 +483,12 @@ class FourOhFourLog
         $ignored = (array) static::config()->get('ignore_categories');
         if (!empty($ignored[$category])) {
             $hasReferrer = is_string($ref) && trim($ref) !== '' && $ref !== 'unknown';
+            # A fake referrer (the URL itself, or the site root) is no referrer: scanners send one
+            # to get past ignore_only_without_referrer. No database work, like the rest of this check.
+            if ($hasReferrer && static::config()->get('self_referrer_is_no_referrer')
+                    && static::isSelfReferrer($link, $ref, $requestHost)) {
+                $hasReferrer = false;
+            }
             if (!($category === self::CATEGORY_SCANNER && $hasReferrer
                     && static::config()->get('ignore_only_without_referrer'))) {
                 return true;
@@ -471,6 +532,119 @@ class FourOhFourLog
         }
 
         return false;
+    }
+
+    /**
+     * Whether a referrer is fake: on one of the site's own hosts (siteHosts()), and either the
+     * requested link itself (path and query string, compared case-insensitively and URL-decoded,
+     * without the base URL's folder and outer slashes) or the bare site root (no path, no query
+     * string). The fragment is ignored. A referrer without a host, or on another host, is never
+     * fake.
+     *
+     * @param string $link With or without leading slash, query string included
+     * @param string $ref The referrer as logged (FourOhFourLogger HTML-encodes it)
+     * @param string|null $requestHost The request's Host header, port allowed
+     * @return bool
+     */
+    public static function isSelfReferrer($link, $ref, $requestHost = null)
+    {
+        # FourOhFourLogger stores the referrer HTML-encoded ('&amp;' in a query string).
+        $parts = parse_url(html_entity_decode(trim((string) $ref), ENT_QUOTES, 'UTF-8'));
+        if (!is_array($parts) || empty($parts['host'])
+                || !in_array(static::normaliseHost($parts['host']), static::siteHosts($requestHost), true)) {
+            return false;
+        }
+
+        # The referrer's path relative to the site root: a site in a subfolder ('/sub/') logs
+        # links relative to that folder.
+        $path = isset($parts['path']) ? (string) $parts['path'] : '';
+        $base = rtrim(Director::baseURL(), '/');
+        if ($base !== '' && ($path === $base || strpos($path, $base . '/') === 0)) {
+            $path = (string) substr($path, strlen($base));
+        }
+        $refKey = static::selfReferrerKey($path, isset($parts['query']) ? (string) $parts['query'] : '');
+
+        # The bare site root: what scanners send when they do not bother to repeat the path.
+        if ($refKey === '') {
+            return true;
+        }
+
+        $link = static::normaliseLink((string) $link);
+        $query = '';
+        if (($pos = strpos($link, '?')) !== false) {
+            $query = (string) substr($link, $pos + 1);
+            $link = (string) substr($link, 0, $pos);
+        }
+
+        return $refKey === static::selfReferrerKey($link, $query);
+    }
+
+    /**
+     * The site's own host names, lower-cased, without port and without a leading 'www.': the
+     * request's Host, Director::host() (Director.alternate_base_url first), the SS_BASE_URL host
+     * and site_hosts.
+     *
+     * @param string|null $requestHost
+     * @return string[]
+     */
+    public static function siteHosts($requestHost = null)
+    {
+        $hosts = array_merge(
+            array((string) $requestHost, (string) Director::host()),
+            # parse_url() needs a scheme or '//' to see a host; SS_BASE_URL has one.
+            array((string) parse_url((string) Environment::getEnv('SS_BASE_URL'), PHP_URL_HOST)),
+            array_map('strval', array_values((array) static::config()->get('site_hosts')))
+        );
+
+        $own = array();
+        foreach ($hosts as $host) {
+            $host = static::normaliseHost($host);
+            if ($host !== '') {
+                $own[$host] = $host;
+            }
+        }
+
+        return array_values($own);
+    }
+
+    /**
+     * A host name in the form siteHosts() compares: lower-cased, no port, no leading 'www.', so
+     * 'www.example.com:8080' and 'example.com' are the same site.
+     *
+     * @param string $host
+     * @return string
+     */
+    protected static function normaliseHost($host)
+    {
+        $host = trim((string) $host);
+        if ($host === '') {
+            return '';
+        }
+        # A bare host or 'host:port' is read as the authority of a scheme-relative URL.
+        $name = parse_url(strpos($host, '//') === false ? '//' . $host : $host, PHP_URL_HOST);
+        $name = mb_strtolower(rtrim((string) $name, '.'));
+
+        return (string) preg_replace('~^www\.~', '', $name);
+    }
+
+    /**
+     * The form in which isSelfReferrer() compares a path and query string: URL-decoded,
+     * lower-cased (rows are keyed case-insensitively too), path without outer slashes.
+     *
+     * @param string $path
+     * @param string $query
+     * @return string
+     */
+    protected static function selfReferrerKey($path, $query)
+    {
+        $key = trim(rawurldecode((string) $path), '/');
+        if ((string) $query !== '') {
+            # urldecode(), not rawurldecode(): the logged link's query string is rebuilt by
+            # http_build_query(), which writes a space as '+'.
+            $key .= '?' . urldecode((string) $query);
+        }
+
+        return mb_strtolower($key);
     }
 
     /**

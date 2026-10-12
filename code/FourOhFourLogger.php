@@ -45,6 +45,8 @@ class FourOhFourLogger
         }
 
         // log or count 404
-        FourOhFourLog::logHit($URL, $ref);
+        # The request's Host goes along: a referrer on it that is the URL itself or the site root
+        # is a scanner's fake referrer (FourOhFourLog.self_referrer_is_no_referrer).
+        FourOhFourLog::logHit($URL, $ref, (string) $request->getHost());
     }
 }
