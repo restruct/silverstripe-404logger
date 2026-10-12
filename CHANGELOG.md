@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.3.0 (Unreleased)
+## 3.3.0 (2026-10-12)
 
 Finding links in the broken links report, and less scanner noise. Backward compatible: no database
 change, no task to run. Deploys that run `composer vendor-expose` publish the new stylesheet.
