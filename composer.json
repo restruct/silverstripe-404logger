@@ -4,10 +4,13 @@
 	"license": "MIT",
 	"type": "silverstripe-vendormodule",
 	"keywords": ["silverstripe", "urls", "log", "404"],
-	"authors": [{
-		"name": "Restruct",
-		"email": "dev@restruct.nl"
-	}],
+	"authors": [
+		{
+			"name": "Restruct",
+			"email": "dev@restruct.nl",
+			"homepage": "https://restruct.nl"
+		}
+	],
 	"require": {
 		"php": "^8.1",
 		"silverstripe/framework": "^5 || ^6"
