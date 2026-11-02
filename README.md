@@ -1,55 +1,40 @@
-Log 404s to DB
-==============
+# 404 logger for Silverstripe
+
+Find the broken links that other sites, old bookmarks and search engines point at your site. Every
+404 from outside the site is logged with its referrer and a hit count, shown in a CMS report where you can
+ignore a link or redirect it in bulk, while scanner and browser noise is dropped before it reaches
+the database. It also logs what visitors type into the site search. For Silverstripe 5 and 6.
 
 *Maintained by [Restruct](https://github.com/restruct). If this module saves you time, you can
 [support ongoing maintenance](https://github.com/sponsors/restruct).*
 
-This module provides logging of incoming requests that result in a 404 not found. They are logged & counted along with the referrer.
+## Out of the box, a 404 leaves no trace
 
-It also logs the search queries visitors enter on the front end, with a hit count, so you can see
-what people look for on the site.
+Silverstripe shows the visitor an error page, and that is all: there is no record of which URLs
+failed, which site linked to them, or how often it happens. A link checker that crawls the site
+finds your own broken links, but not the links on other sites, in old bookmarks or in search
+engine results that still point at a page you moved. And most 404s a site gets are not broken
+links at all: vulnerability scanners guessing `wp-login.php` and `.env`, and browsers and phones
+asking for `apple-touch-icon.png` and `/.well-known/` files on their own. Nor is there a record of
+what visitors search for on the site.
 
-Requirements
-------------
+## Broken inbound links and site searches, logged and reported
 
-* Silverstripe 5 or 6 (`silverstripe/framework`)
-* PHP 8.1 or newer on Silverstripe 5; Silverstripe 6 itself requires PHP 8.3
-* Optional: `silverstripe/reports` for the two CMS reports, and `silverstripe/cms` for search
-  query logging. Both come with `silverstripe/recipe-cms`. Without them the 404 log is still
-  written, but there is no report to view it in.
-* Optional: `silverstripe/siteconfig` (also in recipe-cms) for the CMS-editable ignore list, and
-  `silverstripe/redirectedurls` for the report's "redirect" action.
+- **Every 404 from outside the site is logged**: with an external referrer, or with `unknown`
+  when there is none (a 404 linked from the site itself is left to a link checker). One row per
+  link and referrer, with a hit count. Logging a hit costs one indexed lookup however large the table grows.
+- **Noise is dropped before any database query**: each link gets a category (`page`, `asset`,
+  `scanner`, `probe` or one of your own), and scanner and device-probe hits are not logged by
+  default. Search queries that are noise (injection probes, file names, bare numbers) are dropped
+  too.
+- **A CMS report of the broken links**, one row per link, with filters, CSV export and bulk
+  actions that put links on an ignore list or create redirects for them.
+- **An ignore list editors can change**, under *Settings > 404 log*.
+- **A search words report** with hits per term, per year and a trend (new, faded).
+- **Monthly counts** of every logged hit, for "hits in period" and "hits this year".
+- **A purge task** for old, ignored and noise rows, suitable for a monthly cron job.
 
-Installation
-------------
-
-```
-composer require restruct/silverstripe-404logger
-```
-
-Then run a database build (`dev/build?flush=1` on Silverstripe 5, `vendor/bin/sake db:build --flush`
-on Silverstripe 6).
-
-Version compatibility
----------------------
-
-| Branch | Module version | Silverstripe | PHP |
-|--------|----------------|--------------|-----|
-| `main` | `3.x` | `^5 \|\| ^6` | `^8.1` |
-| (tags only) | `2.0.2` | `^4 \|\| ^5 \|\| ^6` (declared ^6; known broken on 6 - use 3.x) | not declared |
-| (tags only) | `2.0.1` | `^4 \|\| ^5` | not declared |
-| (tags only) | `2.0.0` | `^4` | not declared |
-
-Silverstripe 4 reached end of life in April 2025 and is no longer supported or tested here. Projects
-still on it should stay on the `2.x` tags, which remain available.
-
-`main` is the only maintained line: it supports every Silverstripe version this module still
-targets, so there is no separate maintenance branch.
-
-**`composer.json` is the source of truth** for exact constraints; this table is a quick reference.
-
-Usage
------
+### Where to find the reports
 
 Logged 404s are visible under the 'Reports' section in the CMS as '(External) broken links report'. You can either contact the referrer to get the link updated, or redirect the link at your end using the [redirectedurls module](https://github.com/silverstripe/silverstripe-redirectedurls)
 
@@ -57,6 +42,9 @@ The report shows long URLs shortened to 120 characters (the full URL appears on 
 `FourOhFourReport.link_display_length` in YAML config to change the limit.
 
 Logged search queries are in the same section as 'Search words report'.
+
+Viewing and managing the logged records requires the `CMS_ACCESS_ReportAdmin` permission (access to
+the Reports section). Logging does not depend on it: hits are logged for every visitor.
 
 ### The broken links report
 
@@ -110,19 +98,6 @@ Filters: *Last searched*, *Trend* (new, faded) and *Noise* (hidden by default, s
 noise). Every column sorts; *Export to CSV* exports the filtered list. The years are calendar years,
 so early in January most terms are "faded" until they are searched again.
 
-### Monthly counts
-
-From 3.2 every logged hit is also counted per calendar month (tables `FourOhFourLogMonth` and
-`SearchLogMonth`: log row, `YearMonth` as `YYYYMM`, count). The reports use them for "hits in
-period" and "hits this year". **Monthly data starts at the upgrade to 3.2**: older hits exist only
-in the lifetime `Count`, with no record of when they happened, so there is nothing to backfill.
-
-The cost is one indexed `UPDATE` per logged hit, plus one `INSERT` for a row's first hit in a
-month (measured on MySQL: a repeat 404 hit goes from 3 to 4 SQL statements, a first hit from 5 to
-7; a repeat search from 3 to 4). Ignored hits
-and noise are never counted. Switch it off with `count_per_month: false` on `FourOhFourLog` and/or
-`SearchLog`.
-
 ### Ignore list (Settings > 404 log)
 
 A list editors can change, on `SiteConfig` (only when `silverstripe/siteconfig` is installed):
@@ -131,49 +106,6 @@ ending in `*` ignores every link that starts with it (`downloads/old/*`); lines 
 are comments. The report's *Ignore selected links* action adds lines here; it skips a logged link
 that itself ends in `*`, which would otherwise become such a prefix line. Developers' regular
 expressions stay in `FourOhFourLog.ignore_patterns` (YAML).
-
-### Purging old rows
-
-`LogPurgeTask` deletes rows; each criterion is opt-in, and without one the task deletes nothing.
-
-```
-# Silverstripe 6
-vendor/bin/sake tasks:LogPurgeTask --older-than=24 --ignored --noise --dry-run
-# Silverstripe 5
-vendor/bin/sake dev/tasks/LogPurgeTask older-than=24 ignored=1 noise=1 dry-run=1
-```
-
-* `older-than=N`: 404 and search rows whose most recent hit is more than N months ago, and monthly
-  counts of months before that (also of the rows that are kept).
-* `ignored`: 404 rows that the current rules would no longer log (ignored categories,
-  `ignore_patterns`, the ignore list), eg after ignoring links from the report, or rows from before
-  3.1 that are scanner noise. Since 3.3 that includes scanner rows whose referrer is fake (the
-  link itself or the site root, see `self_referrer_is_no_referrer`).
-* `noise`: search rows that look like noise.
-* `dry-run`: only report the counts. A deleted row takes its monthly counts with it.
-
-It works in chunks (`--chunk-size=N` / `chunk-size=N`, default 1000) and can be stopped and run
-again. Suitable for a monthly cron job.
-
-### Common device probes
-
-Even with no scanner traffic, most 404s on a typical site are requests that browsers, phones and
-crawlers make **on their own**, not broken links:
-
-* `/.well-known/passkey-endpoints` (password managers and browsers looking for passkey support),
-  `/.well-known/change-password`, `/.well-known/traffic-advice` (Chrome's prefetch proxy),
-  `/.well-known/assetlinks.json`, `/.well-known/apple-app-site-association`;
-* `apple-touch-icon.png`, `apple-touch-icon-precomposed.png` and sized variants
-  (`apple-touch-icon-180x180.png`), requested by iOS and many other clients whether or not the page
-  links one, and `favicon.ico`.
-
-They are the `probe` category and not logged by default. To stop them 404ing at all, serve the
-files (an `apple-touch-icon.png` in the web root, a `/.well-known/` route), or answer them in the
-web server; if your site does provide one of them, take its pattern out of `probe` so a real
-failure shows.
-
-Viewing and managing the logged records requires the `CMS_ACCESS_ReportAdmin` permission (access to
-the Reports section). Logging does not depend on it: hits are logged for every visitor.
 
 ### What gets logged
 
@@ -203,6 +135,95 @@ the Reports section). Logging does not depend on it: hits are logged for every v
   bare numbers and dates (`2026`, `12-34-56`), strings that are almost all symbols (`%%%`),
   injection probes (`65'123`, `1 and 1=1`, `<script>`) and file names (`logo.png`). Queries such as
   `c++`, `1234 ab`, `100%`, `node.js` and `kids' books` are kept.
+
+### Common device probes
+
+Even with no scanner traffic, most 404s on a typical site are requests that browsers, phones and
+crawlers make **on their own**, not broken links:
+
+* `/.well-known/passkey-endpoints` (password managers and browsers looking for passkey support),
+  `/.well-known/change-password`, `/.well-known/traffic-advice` (Chrome's prefetch proxy),
+  `/.well-known/assetlinks.json`, `/.well-known/apple-app-site-association`;
+* `apple-touch-icon.png`, `apple-touch-icon-precomposed.png` and sized variants
+  (`apple-touch-icon-180x180.png`), requested by iOS and many other clients whether or not the page
+  links one, and `favicon.ico`.
+
+They are the `probe` category and not logged by default. To stop them 404ing at all, serve the
+files (an `apple-touch-icon.png` in the web root, a `/.well-known/` route), or answer them in the
+web server; if your site does provide one of them, take its pattern out of `probe` so a real
+failure shows.
+
+### Monthly counts
+
+From 3.2 every logged hit is also counted per calendar month (tables `FourOhFourLogMonth` and
+`SearchLogMonth`: log row, `YearMonth` as `YYYYMM`, count). The reports use them for "hits in
+period" and "hits this year". **Monthly data starts at the upgrade to 3.2**: older hits exist only
+in the lifetime `Count`, with no record of when they happened, so there is nothing to backfill.
+
+The cost is one indexed `UPDATE` per logged hit, plus one `INSERT` for a row's first hit in a
+month (measured on MySQL: a repeat 404 hit goes from 3 to 4 SQL statements, a first hit from 5 to
+7; a repeat search from 3 to 4). Ignored hits
+and noise are never counted. Switch it off with `count_per_month: false` on `FourOhFourLog` and/or
+`SearchLog`.
+
+### Purging old rows
+
+`LogPurgeTask` deletes rows; each criterion is opt-in, and without one the task deletes nothing.
+
+```
+# Silverstripe 6
+vendor/bin/sake tasks:LogPurgeTask --older-than=24 --ignored --noise --dry-run
+# Silverstripe 5
+vendor/bin/sake dev/tasks/LogPurgeTask older-than=24 ignored=1 noise=1 dry-run=1
+```
+
+* `older-than=N`: 404 and search rows whose most recent hit is more than N months ago, and monthly
+  counts of months before that (also of the rows that are kept).
+* `ignored`: 404 rows that the current rules would no longer log (ignored categories,
+  `ignore_patterns`, the ignore list), eg after ignoring links from the report, or rows from before
+  3.1 that are scanner noise. Since 3.3 that includes scanner rows whose referrer is fake (the
+  link itself or the site root, see `self_referrer_is_no_referrer`).
+* `noise`: search rows that look like noise.
+* `dry-run`: only report the counts. A deleted row takes its monthly counts with it.
+
+It works in chunks (`--chunk-size=N` / `chunk-size=N`, default 1000) and can be stopped and run
+again. Suitable for a monthly cron job.
+
+## Technical
+
+### Requirements and installation
+
+* Silverstripe 5 or 6 (`silverstripe/framework`)
+* PHP 8.1 or newer on Silverstripe 5; Silverstripe 6 itself requires PHP 8.3
+* Optional: `silverstripe/reports` for the two CMS reports, and `silverstripe/cms` for search
+  query logging. Both come with `silverstripe/recipe-cms`. Without them the 404 log is still
+  written, but there is no report to view it in.
+* Optional: `silverstripe/siteconfig` (also in recipe-cms) for the CMS-editable ignore list, and
+  `silverstripe/redirectedurls` for the report's "redirect" action.
+
+```bash
+composer require restruct/silverstripe-404logger
+```
+
+Then run a database build (`dev/build?flush=1` on Silverstripe 5, `vendor/bin/sake db:build --flush`
+on Silverstripe 6).
+
+### Version compatibility
+
+| Branch | Module version | Silverstripe | PHP |
+|--------|----------------|--------------|-----|
+| `main` | `3.x` | `^5 \|\| ^6` | `^8.1` |
+| (tags only) | `2.0.2` | `^4 \|\| ^5 \|\| ^6` (declared ^6; known broken on 6 - use 3.x) | not declared |
+| (tags only) | `2.0.1` | `^4 \|\| ^5` | not declared |
+| (tags only) | `2.0.0` | `^4` | not declared |
+
+Silverstripe 4 reached end of life in April 2025 and is no longer supported or tested here. Projects
+still on it should stay on the `2.x` tags, which remain available.
+
+`main` is the only maintained line: it supports every Silverstripe version this module still
+targets, so there is no separate maintenance branch.
+
+**`composer.json` is the source of truth** for exact constraints; this table is a quick reference.
 
 ### Configuration
 
@@ -320,6 +341,29 @@ SearchLog:
 A single string (`search_query_param: 'q'`) works as before. A list replaces the default
 `'Search'`, so include it in the list if that parameter should still be logged.
 
+### PHP API
+
+Both loggers call a static method you can also call yourself, eg from a custom controller:
+
+* `FourOhFourLog::logHit(string $link, string $referrer)` - create the row for this link and
+  referrer, or increase its count. Returns the row, or `null` when the hit was ignored.
+* `SearchLog::logHit(string $query)` - create the row for this query, or increase its count.
+  Returns the row, or `null` when the query was noise.
+
+And the checks they use:
+
+* `FourOhFourLog::categorise(string $link): string` - the category of a link.
+* `FourOhFourLog::isIgnored(string $link): bool` - whether a hit on it would be dropped.
+* `SearchLog::isNoise(string $query): bool` - whether a query would be dropped.
+* `SearchLog::looksLikeNoise(string $query): bool` - the same rules, whatever `ignore_noise` says.
+* `SearchLog::termStats(...)` - the derived figures of the search terms report for one term.
+* `FourOhFourLog::matchesIgnoreList(string $link): bool` - whether a link is on the CMS ignore list.
+* `FourOhFourLog::markHandled(array $links, string $as): int` - mark the rows of these links handled.
+* `HitMonthCounter::totalsSince(string $monthClass, int $yearMonth): array` - hits per log row from
+  a month on.
+
+The classes are in the global namespace.
+
 ### Upgrading from 3.1
 
 Run a database build. It adds the tables `FourOhFourLogMonth` and `SearchLogMonth`, the columns
@@ -391,31 +435,7 @@ Until the task has run, logging keeps working: a hit that misses the index falls
 lookup for unhashed rows and gives the row it finds its hash. That fallback (an unindexed query)
 only runs while unhashed rows exist, so run the task to get the full speed-up.
 
-### PHP API
-
-Both loggers call a static method you can also call yourself, eg from a custom controller:
-
-* `FourOhFourLog::logHit(string $link, string $referrer)` - create the row for this link and
-  referrer, or increase its count. Returns the row, or `null` when the hit was ignored.
-* `SearchLog::logHit(string $query)` - create the row for this query, or increase its count.
-  Returns the row, or `null` when the query was noise.
-
-And the checks they use:
-
-* `FourOhFourLog::categorise(string $link): string` - the category of a link.
-* `FourOhFourLog::isIgnored(string $link): bool` - whether a hit on it would be dropped.
-* `SearchLog::isNoise(string $query): bool` - whether a query would be dropped.
-* `SearchLog::looksLikeNoise(string $query): bool` - the same rules, whatever `ignore_noise` says.
-* `SearchLog::termStats(...)` - the derived figures of the search terms report for one term.
-* `FourOhFourLog::matchesIgnoreList(string $link): bool` - whether a link is on the CMS ignore list.
-* `FourOhFourLog::markHandled(array $links, string $as): int` - mark the rows of these links handled.
-* `HitMonthCounter::totalsSince(string $monthClass, int $yearMonth): array` - hits per log row from
-  a month on.
-
-The classes are in the global namespace.
-
-Running the tests
------------------
+### Running the tests
 
 The test suite needs a host project that installs this module through a path repository with
 `"symlink": true` (the `tests/` directory is excluded from dist installs), plus
@@ -429,3 +449,11 @@ SS_PHPUNIT_FLUSH=1 vendor/bin/phpunit vendor/restruct/silverstripe-404logger/tes
 ```
 
 `.github/workflows/ci.yml` builds exactly such a host project for each supported Silverstripe major.
+
+### Further reading
+
+- [CHANGELOG.md](CHANGELOG.md) - release history and upgrade notes per release
+
+### License
+
+MIT, see [LICENSE](LICENSE).

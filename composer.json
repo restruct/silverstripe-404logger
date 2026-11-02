@@ -1,9 +1,9 @@
 {
 	"name": "restruct/silverstripe-404logger",
-	"description": "Logs 404 errors to the database (link & referrer + count), including report for CMS",
+	"description": "Find broken inbound links: logs 404s with referrer and hit count, drops scanner noise, and reports them in the CMS with bulk ignore and redirect. Also logs site searches",
 	"license": "MIT",
 	"type": "silverstripe-vendormodule",
-	"keywords": ["silverstripe", "urls", "log", "404"],
+	"keywords": ["silverstripe", "silverstripe-module", "silverstripe-cms", "404", "broken-links", "logging", "reports", "redirects", "site-search"],
 	"authors": [
 		{
 			"name": "Restruct",
