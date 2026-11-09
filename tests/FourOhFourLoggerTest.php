@@ -99,6 +99,41 @@ class FourOhFourLoggerTest extends FunctionalTest
     }
 
     /**
+     * #5: a referrer host that merely CONTAINS the site's host is another site, so its broken
+     * links are logged. Before the fix a substring match counted all of these as internal.
+     */
+    public function testLookalikeReferrerHostIsLoggedAsExternal()
+    {
+        $lookalikes = [
+            'https://mysite.example.elsewhere.org/links',
+            'https://notmysite.example/links',
+            'https://mysite.examples/links',
+        ];
+        foreach ($lookalikes as $i => $referrer) {
+            $this->get('no-such-page-404logger', null, [
+                'Host' => 'mysite.example',
+                'Referer' => $referrer,
+            ]);
+            $this->assertCount($i + 1, FourOhFourLog::get(), "$referrer is not the site's host");
+        }
+        $this->assertSame($lookalikes, FourOhFourLog::get()->sort('ID')->column('Referrer'));
+    }
+
+    /**
+     * #5: the site's own host, any subdomain of it ('www.') and any letter case are internal.
+     */
+    public function testSubdomainAndCaseOfTheSiteHostAreInternal()
+    {
+        foreach (['https://www.mysite.example/page', 'https://a.b.mysite.example/page', 'https://MySite.Example/page'] as $referrer) {
+            $this->get('no-such-page-404logger', null, [
+                'Host' => 'mysite.example',
+                'Referer' => $referrer,
+            ]);
+            $this->assertCount(0, FourOhFourLog::get(), "$referrer is on the site's host");
+        }
+    }
+
+    /**
      * Regression: the Host header carries the port, the referrer's parsed host does not, so on a
      * non-standard port every internal referrer was logged as external.
      */

@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.4.0 (unreleased)
+
+### Fixed
+
+- **A referrer on a host that merely contains the site's host is logged as external** (#5). The
+  internal-referrer check was a substring match, so for a site on `example.com` a broken link
+  from `example.com.elsewhere.org` or `notexample.com` counted as internal and the 404 was not
+  logged. A referrer is now internal when its host equals the request's host or ends in `.` plus
+  it (so `www.` and other subdomains stay internal), compared case-insensitively.
+
 ## 3.3.0 (2026-10-12)
 
 Finding links in the broken links report, and less scanner noise. Backward compatible: no database
