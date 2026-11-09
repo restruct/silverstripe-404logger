@@ -116,6 +116,10 @@ expressions stay in `FourOhFourLog.ignore_patterns` (YAML).
 * Only **external** referrers are logged. A 404 whose referrer is on the host the request was
   made on (its `Host` header, also when `Director.alternate_base_url` is set) is skipped (internal
   broken links belong in a site-internal link checker). The host is compared without its port.
+  Subdomains of that host count as internal too (`www.example.com` on `example.com`); a host that
+  only contains it (`example.com.elsewhere.org`) does not (since 3.4).
+* The referrer is stored as sent, trimmed (since 3.4; earlier versions stored it HTML-encoded, see
+  "Upgrading from 3.3").
 * A request without a referrer is logged with referrer `unknown`.
 * The link is stored without a leading slash (`about-us`, not `/about-us`).
 * Each link + referrer combination is one row; repeat hits increase its count. Rows are matched
@@ -363,6 +367,30 @@ And the checks they use:
   a month on.
 
 The classes are in the global namespace.
+
+### Upgrading from 3.3
+
+No database build needed. 3.4 stores the referrer as sent instead of HTML-encoded, so a referrer
+with `&`, `<`, `>` or quotes in it would otherwise get a second row next to the one logged before
+the upgrade. Run the decode task once after deploying:
+
+```
+# Silverstripe 6
+vendor/bin/sake tasks:FourOhFourLogReferrerDecodeTask --dry-run
+vendor/bin/sake tasks:FourOhFourLogReferrerDecodeTask
+# Silverstripe 5
+vendor/bin/sake dev/tasks/FourOhFourLogReferrerDecodeTask dry-run=1
+vendor/bin/sake dev/tasks/FourOhFourLogReferrerDecodeTask
+```
+
+It decodes only referrers that are exactly what the old encoding produced, and merges a row into
+the one a hit since the upgrade logged for the same link and referrer (summed count and monthly
+counts, earliest first hit, latest most recent hit). It works in chunks (`--chunk-size=N` /
+`chunk-size=N`, default 1000) and can be stopped and run again; a second run finds nothing to do.
+The one exception is a referrer logged since 3.4 whose URL itself contains an HTML entity such as
+`&amp;`, which looks encoded and is decoded; browsers practically never send one.
+
+Coming from 3.0, run `FourOhFourLogMergeTask` as well (below); the order does not matter.
 
 ### Upgrading from 3.1
 

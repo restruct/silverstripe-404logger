@@ -2,6 +2,24 @@
 
 ## 3.4.0 (unreleased)
 
+Upgrading: run `FourOhFourLogReferrerDecodeTask` once after deploying (README, "Upgrading from
+3.3"). No database build needed.
+
+### Changed
+
+- **The referrer is stored as sent, trimmed, instead of HTML-encoded** (#6). It went through
+  `htmlentities()` before it was stored, and the report escapes it again on output, so a referrer
+  with `&` or quotes showed double-escaped (`&amp;amp;`) in the report, and encoded in the CSV
+  export. Code of your own that reads `FourOhFourLog.Referrer` now gets the plain value and must
+  escape it where it outputs HTML, as the report does.
+
+### Added
+
+- **`FourOhFourLogReferrerDecodeTask`**, a one-off upgrade task for the above: decodes referrers
+  logged before 3.4 and merges each into the row a hit since the upgrade logged for the same link
+  and referrer, so a link does not end up with two rows for one referrer. Only a value that is
+  exactly the old encoding of something is decoded; `--dry-run` / `dry-run=1` reports first.
+
 ### Fixed
 
 - **A referrer on a host that merely contains the site's host is logged as external** (#5). The
