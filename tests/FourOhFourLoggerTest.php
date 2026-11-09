@@ -4,12 +4,17 @@ namespace Restruct\FourOhFourLogger\Tests;
 
 use FourOhFourLog;
 use FourOhFourLogger;
+use FourOhFourReport;
 use SilverStripe\Control\Director;
 use SilverStripe\Control\HTTPRequest;
 use SilverStripe\Control\RequestHandler;
 use SilverStripe\Core\Injector\Injector;
 use SilverStripe\Dev\FunctionalTest;
 use SilverStripe\ErrorPage\ErrorPage;
+use SilverStripe\Forms\FieldList;
+use SilverStripe\Forms\Form;
+use SilverStripe\Reports\Report;
+use SilverStripe\Reports\ReportAdmin;
 
 /**
  * FourOhFourLogger: which 404s are logged, through a real request cycle.
@@ -46,11 +51,24 @@ class FourOhFourLoggerTest extends FunctionalTest
     }
 
     /**
-     * Pins the CURRENT stored form: the referrer is trimmed and stored HTML-entity encoded
-     * (htmlentities, ENT_QUOTES, UTF-8), so existing rows and anything reading them stay
-     * consistent. Changing that is a deliberate decision, not a side effect of a refactor.
+     * Pins the stored form: the referrer is trimmed and stored as sent, NOT HTML-entity encoded
+     * (#6, 3.4). Until 3.3 it was stored htmlentities()-encoded, which the report then escaped a
+     * second time. Changing the stored form is a deliberate decision, not a side effect of a
+     * refactor: existing rows need FourOhFourLogReferrerDecodeTask.
      */
-    public function testReferrerIsStoredHtmlEntityEncoded()
+//    public function testReferrerIsStoredHtmlEntityEncoded()
+//    {
+//        $this->get('no-such-page-404logger', null, [
+//            'Referer' => " https://elsewhere.example/café?a=1&b=<x>&c='q'\"r\" ",
+//        ]);
+//
+//        $this->assertCount(1, FourOhFourLog::get());
+//        $this->assertSame(
+//            'https://elsewhere.example/caf&eacute;?a=1&amp;b=&lt;x&gt;&amp;c=&#039;q&#039;&quot;r&quot;',
+//            FourOhFourLog::get()->first()->Referrer
+//        );
+//    }
+    public function testReferrerIsStoredTrimmedAndUnencoded()
     {
         $this->get('no-such-page-404logger', null, [
             'Referer' => " https://elsewhere.example/café?a=1&b=<x>&c='q'\"r\" ",
@@ -58,9 +76,32 @@ class FourOhFourLoggerTest extends FunctionalTest
 
         $this->assertCount(1, FourOhFourLog::get());
         $this->assertSame(
-            'https://elsewhere.example/caf&eacute;?a=1&amp;b=&lt;x&gt;&amp;c=&#039;q&#039;&quot;r&quot;',
+            "https://elsewhere.example/café?a=1&b=<x>&c='q'\"r\"",
             FourOhFourLog::get()->first()->Referrer
         );
+    }
+
+    /**
+     * #6, what an editor saw: a referrer with '&' was shown as '&amp;amp;' in the report, since it
+     * was stored encoded and the report's cell escapes it again. Now it is escaped once.
+     */
+    public function testReferrerIsShownEscapedOnceInTheReport()
+    {
+        if (!class_exists(Report::class)) {
+            $this->markTestSkipped('silverstripe/reports is not installed');
+        }
+        $this->get('no-such-page-404logger', null, [
+            'Referer' => 'https://elsewhere.example/links?a=1&b=2',
+        ]);
+
+        $this->logInWithPermission('ADMIN');
+        $field = FourOhFourReport::create()->getReportField();
+        # Inside a form, as ReportAdmin renders it: the grid's buttons need one for their links
+        Form::create(ReportAdmin::singleton(), 'EditForm', FieldList::create($field), FieldList::create());
+        $html = (string) $field->forTemplate();
+
+        $this->assertStringContainsString('<span title="https://elsewhere.example/links?a=1&amp;b=2">', $html);
+        $this->assertStringNotContainsString('&amp;amp;', $html);
     }
 
     public function testQueryStringIsPartOfTheLoggedLink()

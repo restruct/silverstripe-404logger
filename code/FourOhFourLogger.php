@@ -24,7 +24,12 @@ class FourOhFourLogger
         # built from $_SERVER), and correct for a request constructed in code or by Director::test().
         $ref = $request->getHeader('Referer');
 		if (is_string($ref) && trim($ref) !== '') {
-            $ref = htmlentities(trim($ref), ENT_QUOTES, 'UTF-8');
+//            $ref = htmlentities(trim($ref), ENT_QUOTES, 'UTF-8');
+            # Stored as sent, only trimmed (#6). It was stored htmlentities()-encoded, and every
+            # place it is shown escapes it again (the report's cells, its CSV), so a referrer with
+            # '&' or quotes showed double-escaped ('&amp;amp;'). Escaping belongs to the output.
+            # Rows logged before 3.4 are decoded once by FourOhFourLogReferrerDecodeTask.
+            $ref = trim($ref);
             // only log EXTERNAL referrers, internal links will be reported in another report
             $parts = parse_url($ref);
             # Own host without any port: a Host header of 'example.com:8080' never matched the

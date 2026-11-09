@@ -542,13 +542,16 @@ class FourOhFourLog
      * fake.
      *
      * @param string $link With or without leading slash, query string included
-     * @param string $ref The referrer as logged (FourOhFourLogger HTML-encodes it)
+     * @param string $ref The referrer as logged: as sent since 3.4, HTML-encoded before (see below)
      * @param string|null $requestHost The request's Host header, port allowed
      * @return bool
      */
     public static function isSelfReferrer($link, $ref, $requestHost = null)
     {
-        # FourOhFourLogger stores the referrer HTML-encoded ('&amp;' in a query string).
+        # FourOhFourLogger stored the referrer HTML-encoded ('&amp;' in a query string) before 3.4,
+        # and such rows stay that way until FourOhFourLogReferrerDecodeTask has run (LogPurgeTask
+        # passes stored rows in here). Decoding a referrer stored as sent changes it only where it
+        # contains an HTML entity, which a URL a browser sends practically never does.
         $parts = parse_url(html_entity_decode(trim((string) $ref), ENT_QUOTES, 'UTF-8'));
         if (!is_array($parts) || empty($parts['host'])
                 || !in_array(static::normaliseHost($parts['host']), static::siteHosts($requestHost), true)) {
