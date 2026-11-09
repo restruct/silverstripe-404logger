@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.4.0 (unreleased)
+## 3.4.0 (2026-11-09)
 
 Upgrading: run `FourOhFourLogReferrerDecodeTask` once after deploying (README, "Upgrading from
 3.3"). No database build needed.
